@@ -297,3 +297,41 @@ class BirdDataClient:
             logger.error(f"Error getting protected area data: {str(e)}")
         
         return env_data 
+
+    def get_xeno_canto_recordings_by_species(self, species_name):
+        """
+        Get bird sound recordings from Xeno-canto for a specific species.
+        
+        Parameters:
+        -----------
+        species_name : str
+            The common name of the bird species
+            
+        Returns:
+        --------
+        pandas.DataFrame
+            DataFrame containing the recordings data
+        """
+        try:
+            # Construct the API URL
+            base_url = "https://xeno-canto.org/api/2/recordings"
+            query = f"?query={species_name}"
+            url = base_url + query
+            
+            # Make the request
+            response = requests.get(url)
+            response.raise_for_status()
+            
+            # Parse the response
+            data = response.json()
+            
+            if 'recordings' in data and len(data['recordings']) > 0:
+                # Convert to DataFrame
+                df = pd.DataFrame(data['recordings'])
+                return df
+            else:
+                return pd.DataFrame()
+        
+        except Exception as e:
+            print(f"Error fetching Xeno-canto data: {str(e)}")
+            return pd.DataFrame() 

@@ -19,6 +19,7 @@ from bird_api_client import BirdDataClient
 import matplotlib.pyplot as plt
 import numpy as np
 import south_asian_bird_hotspot
+import io
 
 # Load environment variables for API keys
 load_dotenv()
@@ -34,64 +35,105 @@ def generate_hotspot_details(hotspot_row):
     
     # Basic information
     details = f"""
-    <div style='min-width: 200px'>
-    <h4>Hotspot Details</h4>
-    <b>Score:</b> {hotspot_row['hotspot_score']:.2f}<br>
+    <div style='min-width: 250px; font-family: Arial, sans-serif;'>
+    <h4 style='color: #2C3E50;'>Hotspot Details</h4>
+    <div style='background-color: #ECF0F1; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
+    <p><b>Score:</b> <span style='color: #E74C3C; font-weight: bold;'>{hotspot_row['hotspot_score']:.2f}</span></p>
     """
     
     # Add habitat diversity if available
     if 'habitat_diversity' in hotspot_row:
-        details += f"<b>Habitat Diversity:</b> {hotspot_row['habitat_diversity']:.2f}<br>"
+        details += f"<p><b>Habitat Diversity:</b> {hotspot_row['habitat_diversity']:.2f}</p>"
     
     # Add bird count information if available
     if 'bird_count' in hotspot_row:
-        details += f"<b>Bird Count:</b> {int(hotspot_row['bird_count'])}<br>"
+        details += f"<p><b>Bird Count:</b> {int(hotspot_row['bird_count'])}</p>"
     else:
         # Simulate bird count based on hotspot score
         estimated_count = int(hotspot_row['hotspot_score'] * 100)
-        details += f"<b>Estimated Bird Count:</b> {estimated_count}<br>"
+        details += f"<p><b>Estimated Bird Count:</b> {estimated_count}</p>"
     
     # Add species information if available
     if 'species_count' in hotspot_row:
-        details += f"<b>Species Count:</b> {int(hotspot_row['species_count'])}<br>"
+        details += f"<p><b>Species Count:</b> {int(hotspot_row['species_count'])}</p>"
     else:
         # Simulate species count based on hotspot score
         estimated_species = int(hotspot_row['hotspot_score'] * 30)
-        details += f"<b>Estimated Species:</b> {estimated_species}<br>"
+        details += f"<p><b>Estimated Species:</b> {estimated_species}</p>"
+    
+    details += "</div>"
     
     # Add habitat information
-    details += "<b>Key Habitats:</b><br>"
+    details += "<h4 style='color: #2C3E50; margin-top: 15px;'>Key Habitats</h4>"
+    details += "<ul style='padding-left: 20px;'>"
+    
+    habitat_found = False
     for col in hotspot_row.index:
         if col.startswith('is_') and hotspot_row[col] > 0:
+            habitat_found = True
             habitat_name = col.replace('is_', '').replace('_', ' ').title()
-            details += f"- {habitat_name}<br>"
+            details += f"<li>{habitat_name}</li>"
     
-    # Add calculation explanation
-    details += "<h4>Score Calculation</h4>"
-    details += "<table style='width:100%'>"
-    details += "<tr><th>Factor</th><th>Weight</th><th>Value</th></tr>"
+    if not habitat_found:
+        details += "<li>No specific habitats identified</li>"
     
-    # Habitat diversity factor
-    if 'habitat_diversity' in hotspot_row:
-        details += f"<tr><td>Habitat Diversity</td><td>50%</td><td>{hotspot_row['habitat_diversity']:.2f}</td></tr>"
+    details += "</ul>"
+    
+    # Add calculation explanation with corrected formula
+    details += "<h4 style='color: #2C3E50; margin-top: 15px;'>Score Calculation</h4>"
+    details += "<div style='background-color: #ECF0F1; padding: 10px; border-radius: 5px;'>"
+    details += "<table style='width:100%; border-collapse: collapse;'>"
+    details += "<tr style='border-bottom: 1px solid #BDC3C7;'><th style='text-align: left; padding: 5px;'>Factor</th><th style='text-align: center; padding: 5px;'>Weight</th><th style='text-align: right; padding: 5px;'>Value</th></tr>"
+    
+    # Habitat diversity factor - always included in the formula
+    habitat_diversity_value = hotspot_row.get('habitat_diversity', 0)
+    details += f"<tr style='border-bottom: 1px solid #BDC3C7;'><td style='padding: 5px;'>Habitat Diversity</td><td style='text-align: center; padding: 5px;'>50%</td><td style='text-align: right; padding: 5px;'>{habitat_diversity_value:.2f}</td></tr>"
     
     # Protected area factor
-    if 'protected_area' in hotspot_row:
-        details += f"<tr><td>Protected Area</td><td>30%</td><td>{hotspot_row['protected_area']:.2f}</td></tr>"
+    protected_area_value = hotspot_row.get('protected_area', 0)
+    details += f"<tr style='border-bottom: 1px solid #BDC3C7;'><td style='padding: 5px;'>Protected Area</td><td style='text-align: center; padding: 5px;'>30%</td><td style='text-align: right; padding: 5px;'>{protected_area_value:.2f}</td></tr>"
     
     # Wetland area factor
-    if 'wetland_area' in hotspot_row:
-        details += f"<tr><td>Wetland Area</td><td>20%</td><td>{hotspot_row['wetland_area']:.2f}</td></tr>"
+    wetland_value = hotspot_row.get('wetland_score', hotspot_row.get('wetland_area', 0)/100 if 'wetland_area' in hotspot_row else 0)
+    details += f"<tr style='border-bottom: 1px solid #BDC3C7;'><td style='padding: 5px;'>Wetland Area</td><td style='text-align: center; padding: 5px;'>20%</td><td style='text-align: right; padding: 5px;'>{wetland_value:.2f}</td></tr>"
+    
+    # Calculate the base score
+    base_score = (0.5 * habitat_diversity_value) + (0.3 * protected_area_value) + (0.2 * wetland_value)
+    details += f"<tr style='border-bottom: 1px solid #BDC3C7; font-weight: bold;'><td style='padding: 5px;'>Base Score</td><td style='text-align: center; padding: 5px;'>100%</td><td style='text-align: right; padding: 5px;'>{base_score:.2f}</td></tr>"
+    
+    # Add bonus factors if available
+    bonus_score = 0
     
     # BirdNet data if available
-    if 'birdnet_score' in hotspot_row:
-        details += f"<tr><td>BirdNet Audio Analysis</td><td>Bonus</td><td>{hotspot_row['birdnet_score']:.2f}</td></tr>"
+    if 'birdnet_score' in hotspot_row and hotspot_row['birdnet_score'] > 0:
+        birdnet_bonus = hotspot_row['birdnet_score'] * 0.1  # 10% bonus
+        bonus_score += birdnet_bonus
+        details += f"<tr style='border-bottom: 1px solid #BDC3C7;'><td style='padding: 5px;'>BirdNet Audio Analysis</td><td style='text-align: center; padding: 5px;'>+10%</td><td style='text-align: right; padding: 5px;'>+{birdnet_bonus:.2f}</td></tr>"
     
     # eBird data if available
-    if 'ebird_score' in hotspot_row:
-        details += f"<tr><td>eBird Observations</td><td>Bonus</td><td>{hotspot_row['ebird_score']:.2f}</td></tr>"
+    if 'ebird_score' in hotspot_row and hotspot_row['ebird_score'] > 0:
+        ebird_bonus = hotspot_row['ebird_score'] * 0.2  # 20% bonus
+        bonus_score += ebird_bonus
+        details += f"<tr style='border-bottom: 1px solid #BDC3C7;'><td style='padding: 5px;'>eBird Observations</td><td style='text-align: center; padding: 5px;'>+20%</td><td style='text-align: right; padding: 5px;'>+{ebird_bonus:.2f}</td></tr>"
+    
+    # GBIF data if available
+    if 'gbif_score' in hotspot_row and hotspot_row['gbif_score'] > 0:
+        gbif_bonus = hotspot_row['gbif_score'] * 0.2  # 20% bonus
+        bonus_score += gbif_bonus
+        details += f"<tr style='border-bottom: 1px solid #BDC3C7;'><td style='padding: 5px;'>GBIF Biodiversity</td><td style='text-align: center; padding: 5px;'>+20%</td><td style='text-align: right; padding: 5px;'>+{gbif_bonus:.2f}</td></tr>"
+    
+    # Xeno-canto data if available
+    if 'xeno_canto_score' in hotspot_row and hotspot_row['xeno_canto_score'] > 0:
+        xeno_bonus = hotspot_row['xeno_canto_score'] * 0.15  # 15% bonus
+        bonus_score += xeno_bonus
+        details += f"<tr style='border-bottom: 1px solid #BDC3C7;'><td style='padding: 5px;'>Xeno-canto Recordings</td><td style='text-align: center; padding: 5px;'>+15%</td><td style='text-align: right; padding: 5px;'>+{xeno_bonus:.2f}</td></tr>"
+    
+    # Final score with bonuses
+    final_score = min(1.0, base_score + bonus_score)
+    details += f"<tr style='font-weight: bold; background-color: #D5DBDB;'><td style='padding: 5px;'>Final Score</td><td style='text-align: center; padding: 5px;'></td><td style='text-align: right; padding: 5px;'>{final_score:.2f}</td></tr>"
     
     details += "</table>"
+    details += "</div>"
     details += "</div>"
     
     return details
@@ -283,9 +325,9 @@ if location_method == "Search by City/Locality":
         ["India", "Nepal", "Bangladesh", "Sri Lanka", "Pakistan", "Bhutan"]
     )
     
-    if st.sidebar.button("Search") and location_name:
+    if st.sidebar.button("Search for Hotspots") and location_name:
         with st.sidebar:
-            with st.spinner("Finding location..."):
+            with st.spinner("Finding location and analyzing hotspots..."):
                 try:
                     geolocator = Nominatim(user_agent="bird_hotspot_app")
                     location = geolocator.geocode(f"{location_name}, {country}")
@@ -299,6 +341,9 @@ if location_method == "Search by City/Locality":
                         st.session_state.latitude = latitude
                         st.session_state.longitude = longitude
                         st.session_state.location_name = location_name
+                        
+                        # Proceed directly to hotspot analysis
+                        st.session_state.run_analysis = True
                     else:
                         st.error("Location not found. Try a different name.")
                 except Exception as e:
@@ -311,6 +356,13 @@ elif location_method == "Enter Coordinates":
     with col2:
         longitude = st.number_input("Longitude", -180.0, 180.0, 77.2)
     location_name = f"Coordinates ({latitude}, {longitude})"
+    
+    # Single button for immediate analysis
+    if st.sidebar.button("Find Hotspots at These Coordinates"):
+        st.session_state.latitude = latitude
+        st.session_state.longitude = longitude
+        st.session_state.location_name = location_name
+        st.session_state.run_analysis = True
 
 elif location_method == "Use Current Location":
     st.sidebar.info("This feature requires browser location permission.")
@@ -318,14 +370,14 @@ elif location_method == "Use Current Location":
     # Add a placeholder for the location data
     loc_status = st.sidebar.empty()
     
-    # JavaScript to get current location
-    loc_button = st.sidebar.button("Get My Location")
+    # Combined button for getting location and running analysis
+    loc_button = st.sidebar.button("Find Hotspots at My Location")
     
     if loc_button:
         # In a real app, you'd use proper JS integration with Streamlit components
         # For demo purposes, we'll simulate location detection
         with st.sidebar:
-            with st.spinner("Detecting your location..."):
+            with st.spinner("Detecting your location and analyzing hotspots..."):
                 # Simulate a delay for the location detection
                 time.sleep(1.5)
                 
@@ -350,6 +402,9 @@ elif location_method == "Use Current Location":
                 
                 loc_status.success(f"Location detected: {loc['name']}")
                 st.map(pd.DataFrame({'lat': [latitude], 'lon': [longitude]}))
+                
+                # Proceed directly to hotspot analysis
+                st.session_state.run_analysis = True
 
 # Additional settings
 st.sidebar.header("Data Sources")
@@ -367,8 +422,11 @@ if use_ebird:
 else:
     ebird_api_key = ""
 
-# Run analysis button
-run_analysis = st.sidebar.button("Find Bird Hotspots", type="primary")
+# Remove the separate "Find Bird Hotspots" button since we now run immediately after location is set
+# Instead, add a Refresh button for when data source settings change
+if hasattr(st.session_state, 'latitude') and hasattr(st.session_state, 'longitude'):
+    if st.sidebar.button("Refresh Analysis with Current Settings"):
+        st.session_state.run_analysis = True
 
 # Retrieve from session state if available
 if hasattr(st.session_state, 'latitude') and hasattr(st.session_state, 'longitude'):
@@ -378,8 +436,14 @@ if hasattr(st.session_state, 'latitude') and hasattr(st.session_state, 'longitud
         if hasattr(st.session_state, 'location_name'):
             location_name = st.session_state.location_name
 
-# Main content area
-if latitude is not None and longitude is not None and run_analysis:
+# Initialize the run_analysis flag if it doesn't exist
+if 'run_analysis' not in st.session_state:
+    st.session_state.run_analysis = False
+
+# Main content area - now check the session state flag instead of button click
+if latitude is not None and longitude is not None and st.session_state.run_analysis:
+    # Reset the flag for next time
+    st.session_state.run_analysis = False
     st.session_state.processing = True
     
     # Show header
@@ -393,37 +457,35 @@ if latitude is not None and longitude is not None and run_analysis:
     status_text = st.empty()
     
     try:
-        # Define region bbox (search area around the point)
-        degree_radius = search_radius / 111  # ~111km per degree
-        region_bbox = (
-            latitude - degree_radius,
-            longitude - degree_radius,
-            latitude + degree_radius,
-            longitude + degree_radius
-        )
-        
-        # Initialize predictor
-        status_text.text("Initializing hotspot predictor...")
-        predictor = south_asian_bird_hotspot.SouthAsianBirdHotspotPredictor(region_bbox, grid_size=0.02)
-        progress_bar.progress(25)
-        
-        # Process for current date
-        status_text.text("Processing environmental data and calculating hotspots...")
-        result = predictor.process_for_current_date(
-            latitude, 
-            longitude, 
-            radius_km=search_radius,
-            date=current_date,
-            use_ebird=use_ebird,
-            use_gbif=use_gbif,
-            use_xeno_canto=use_xeno_canto,
-            ebird_api_key=ebird_api_key
-        )
-        progress_bar.progress(100)
-        status_text.text("Analysis complete!")
-        
-        # Store the result in session state
-        st.session_state.result = result
+        # Now proceed directly to hotspot analysis
+        with st.spinner("Analyzing bird hotspots..."):
+            # Define region bbox (search area around the point)
+            degree_radius = search_radius / 111  # ~111km per degree
+            region_bbox = (
+                latitude - degree_radius,  # min_lat
+                longitude - degree_radius,  # min_lon
+                latitude + degree_radius,  # max_lat
+                longitude + degree_radius   # max_lon
+            )
+            
+            # Initialize predictor with the correct parameters
+            # Use the region_bbox we just calculated, not south_asia_bbox
+            predictor = south_asian_bird_hotspot.SouthAsianBirdHotspotPredictor(region_bbox=region_bbox, grid_size=0.02)
+            
+            # Run the analysis using the process_for_current_date method with all required parameters
+            result = predictor.process_for_current_date(
+                latitude=latitude, 
+                longitude=longitude, 
+                radius_km=search_radius,
+                date=current_date,
+                use_ebird=use_ebird,
+                use_gbif=use_gbif,
+                use_xeno_canto=use_xeno_canto,
+                ebird_api_key=ebird_api_key
+            )
+            
+            # Store the result in session state
+            st.session_state.result = result
         
         # Display results
         if result and 'grid' in result and len(result['grid']) > 0 and 'hotspots' in result and result['hotspots'] is not None:
@@ -470,83 +532,164 @@ if latitude is not None and longitude is not None and run_analysis:
             main_tabs = st.tabs(["Map View", "Hotspot Details", "Species Information", "Habitat Analysis", "Algorithm Details", "Real-Time Data"])
             
             with main_tabs[0]:
-                # Map view
-                st.write("#### Interactive Hotspot Map")
-                st.write("Click on markers to see detailed information. Hover for quick stats.")
-                
-                # Create a folium map
-                m = folium.Map(
-                    location=[latitude, longitude],
-                    zoom_start=10,
-                    tiles="OpenStreetMap"
-                )
-                
-                # Add user location marker
-                folium.Marker(
-                    [latitude, longitude],
-                    popup="Your Location",
-                    icon=folium.Icon(color="blue", icon="home")
-                ).add_to(m)
-                
-                # Add a heatmap layer for all grid points
-                heat_data = [[row['latitude'], row['longitude'], row['hotspot_score'] * 2] 
-                            for _, row in result['grid'].iterrows() if row['hotspot_score'] > 0.2]
-                
-                # Create a more aesthetic heatmap
-                HeatMap(
-                    heat_data, 
-                    radius=15, 
-                    blur=10, 
-                    max_zoom=13,
-                    gradient={
-                        '0.2': '#ffffb2',
-                        '0.4': '#fecc5c',
-                        '0.6': '#fd8d3c',
-                        '0.8': '#f03b20',
-                        '1.0': '#bd0026'
-                    },
-                    min_opacity=0.5,
-                    max_val=2.0
-                ).add_to(m)
-                
-                # Add hotspot markers
-                if 'hotspots' in result and result['hotspots'] is not None:
-                    top_hotspots = result['hotspots']
+                # Create a static visualization of the hotspots with a better heatmap
+                try:
+                    st.write("### Bird Hotspot Map")
+                    st.write("Showing predicted hotspots based on environmental factors and bird data.")
                     
-                    # Add markers for top hotspots
-                    for idx, row in top_hotspots.iterrows():
-                        # Generate detailed popup content
-                        popup_content = generate_hotspot_details(row)
+                    # Create a matplotlib figure for the map
+                    fig, ax = plt.subplots(figsize=(12, 8))
+                    
+                    # Plot the base grid points if available
+                    if 'grid' in result and not result['grid'].empty:
+                        # Create a better looking heatmap using contourf
+                        x = result['grid']['longitude']
+                        y = result['grid']['latitude']
+                        z = result['grid']['hotspot_score']
                         
-                        # Create a custom icon with bird count
-                        bird_count = int(row['bird_count']) if 'bird_count' in row else int(row['hotspot_score'] * 100)
-                        species_count = int(row['species_count']) if 'species_count' in row else int(row['hotspot_score'] * 30)
+                        # Create a grid for contour plotting
+                        xi = np.linspace(min(x), max(x), 100)
+                        yi = np.linspace(min(y), max(y), 100)
+                        xi, yi = np.meshgrid(xi, yi)
                         
-                        # Create a circle marker with the hotspot score
-                        folium.CircleMarker(
-                            location=[row['latitude'], row['longitude']],
-                            radius=10,
-                            popup=folium.Popup(popup_content, max_width=300),
-                            tooltip=f"Hotspot {idx+1}: {bird_count} birds, {species_count} species",
+                        # Interpolate the scores onto the grid
+                        from scipy.interpolate import griddata
+                        zi = griddata((x, y), z, (xi, yi), method='cubic')
+                        
+                        # Plot the contour
+                        contour = ax.contourf(xi, yi, zi, 
+                                             levels=15, 
+                                             cmap='YlOrRd',
+                                             alpha=0.7)
+                        
+                        # Add a colorbar
+                        cbar = plt.colorbar(contour, ax=ax)
+                        cbar.set_label('Hotspot Score', fontsize=12)
+                        
+                        # Add scatter points for the actual data points
+                        ax.scatter(x, y, c=z, cmap='YlOrRd', 
+                                  edgecolor='k', linewidth=0.5, 
+                                  s=30, alpha=0.6)
+                    
+                    # Mark the search location with a blue star
+                    ax.scatter(
+                        longitude, 
+                        latitude, 
+                        marker='*', 
+                        s=300, 
+                        color='blue', 
+                        edgecolor='white', 
+                        linewidth=1,
+                        label='Search Location',
+                        zorder=10
+                    )
+                    
+                    # Add top hotspots with red markers
+                    if 'hotspots' in result and not result['hotspots'].empty:
+                        # Plot the hotspots
+                        hotspot_scatter = ax.scatter(
+                            result['hotspots']['longitude'],
+                            result['hotspots']['latitude'],
+                            marker='o',
+                            s=200,
                             color='red',
-                            fill=True,
-                            fill_color='red',
-                            fill_opacity=0.7
-                        ).add_to(m)
+                            edgecolor='white',
+                            linewidth=1,
+                            label='Top Hotspots',
+                            zorder=11
+                        )
                         
-                        # Add a label with bird count
-                        folium.Marker(
-                            location=[row['latitude'], row['longitude']],
-                            icon=folium.DivIcon(
-                                icon_size=(150,36),
-                                icon_anchor=(75,18),
-                                html=f'<div style="font-size: 12pt; font-weight: bold; color: black; background-color: white; border: 2px solid red; border-radius: 4px; padding: 2px 5px; opacity: 0.9;">{bird_count} birds</div>'
+                        # Add labels for each hotspot
+                        for i, (_, hotspot) in enumerate(result['hotspots'].iterrows(), 1):
+                            ax.annotate(
+                                f"#{i}",
+                                (hotspot['longitude'], hotspot['latitude']),
+                                color='white',
+                                fontweight='bold',
+                                ha='center',
+                                va='center',
+                                zorder=12
                             )
-                        ).add_to(m)
+                    
+                    # Add a title and labels
+                    ax.set_title(f'Bird Hotspots near {location_name}', fontsize=16)
+                    ax.set_xlabel('Longitude', fontsize=12)
+                    ax.set_ylabel('Latitude', fontsize=12)
+                    
+                    # Add a legend
+                    ax.legend(loc='upper right', fontsize=12)
+                    
+                    # Add a grid
+                    ax.grid(True, linestyle='--', alpha=0.7)
+                    
+                    # Display the map
+                    st.pyplot(fig)
+                    
+                    # Add hotspot details in expandable sections
+                    if 'hotspots' in result and not result['hotspots'].empty:
+                        st.write("### Top Hotspot Details")
+                        
+                        # Get the habitat to birds mapping
+                        habitat_to_birds = get_habitat_to_birds_mapping()
+                        
+                        # Create columns for the hotspots
+                        num_hotspots = min(len(result['hotspots']), 3)  # Show up to 3 hotspots in a row
+                        hotspot_cols = st.columns(num_hotspots)
+                        
+                        # Display each hotspot in its own column
+                        for i, (col, (_, hotspot)) in enumerate(zip(hotspot_cols, result['hotspots'].iterrows()), 1):
+                            with col:
+                                with st.container():
+                                    # Create a styled header
+                                    st.markdown(f"""
+                                    <div style="background-color: #3498DB; color: white; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+                                        <h3 style="margin: 0; text-align: center;">Hotspot #{i}</h3>
+                                        <p style="margin: 5px 0 0 0; text-align: center; font-size: 18px;">Score: {hotspot['hotspot_score']:.2f}</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    # Determine which habitats are present at this hotspot
+                                    present_habitats = []
+                                    for col_name in hotspot.index:
+                                        if col_name.startswith('is_') and hotspot[col_name] > 0:
+                                            habitat_name = col_name.replace('is_', '').replace('_', ' ').title()
+                                            present_habitats.append(habitat_name)
+                                    
+                                    # Display habitats
+                                    if present_habitats:
+                                        st.markdown("#### Habitats")
+                                        for habitat in present_habitats:
+                                            st.markdown(f"- {habitat}")
+                                    
+                                    # Get likely birds for these habitats
+                                    likely_birds = []
+                                    for habitat in present_habitats:
+                                        for habitat_key, birds in habitat_to_birds.items():
+                                            if habitat.lower() in habitat_key or habitat_key in habitat.lower():
+                                                likely_birds.extend(birds)
+                                    
+                                    # Take up to 5 unique birds
+                                    unique_birds = []
+                                    seen_names = set()
+                                    for bird in likely_birds:
+                                        if bird['name'] not in seen_names and len(unique_birds) < 5:
+                                            unique_birds.append(bird)
+                                            seen_names.add(bird['name'])
+                                    
+                                    # Display birds
+                                    if unique_birds:
+                                        st.markdown("#### Likely Birds")
+                                        for bird in unique_birds:
+                                            st.markdown(f"""
+                                            <div style="margin-bottom: 8px; padding: 5px; background-color: #f8f9fa; border-radius: 3px;">
+                                                <b>{bird['name']}</b><br>
+                                                <small>{bird['type']} - {bird['status']}</small>
+                                            </div>
+                                            """, unsafe_allow_html=True)
                 
-                # Display the map
-                folium_map = folium.Figure().add_child(m)
-                st.components.v1.html(folium_map._repr_html_(), height=500)
+                except Exception as e:
+                    st.error(f"Error creating visualization: {str(e)}")
+                    st.error(traceback.format_exc())
             
             with main_tabs[1]:
                 st.write("#### Hotspot Details")
@@ -1162,102 +1305,111 @@ if latitude is not None and longitude is not None and run_analysis:
                         # Create the bird data client
                         bird_client = BirdDataClient()
                         
-                        # Get Xeno-canto recordings
-                        with st.spinner("Fetching bird sound recordings..."):
-                            xeno_df = bird_client.get_xeno_canto_recordings(latitude, longitude, radius_km=search_radius)
+                        # Get the list of birds from the hotspots
+                        bird_species = set()
                         
-                        if not xeno_df.empty:
-                            # Display summary
-                            st.write(f"Found {len(xeno_df)} bird sound recordings from Xeno-canto")
+                        # Extract birds from habitat mapping based on hotspot habitats
+                        if 'hotspots' in result and not result['hotspots'].empty:
+                            habitat_to_birds = get_habitat_to_birds_mapping()
                             
-                            # Create a map of recordings
-                            xeno_map = folium.Map(location=[latitude, longitude], zoom_start=10)
+                            for _, hotspot in result['hotspots'].iterrows():
+                                # Find habitats in this hotspot
+                                present_habitats = []
+                                for col in hotspot.index:
+                                    if col.startswith('is_') and hotspot[col] > 0:
+                                        habitat_name = col.replace('is_', '').replace('_', ' ')
+                                        present_habitats.append(habitat_name)
+                                
+                                # Get birds for these habitats
+                                for habitat in present_habitats:
+                                    for habitat_key, birds in habitat_to_birds.items():
+                                        if habitat in habitat_key or habitat_key in habitat:
+                                            for bird in birds:
+                                                bird_species.add(bird['name'])
+                        
+                        # Convert to list and sort
+                        bird_list = sorted(list(bird_species))
+                        
+                        if bird_list:
+                            # Let user select a bird
+                            selected_bird = st.selectbox("Select a bird to hear its calls:", bird_list)
                             
-                            # Add a marker for the search location
-                            folium.Marker(
-                                location=[latitude, longitude],
-                                popup="Search Location",
-                                icon=folium.Icon(color="blue", icon="home")
-                            ).add_to(xeno_map)
+                            # Fetch recordings for the selected bird
+                            with st.spinner(f"Fetching sound recordings for {selected_bird}..."):
+                                xeno_df = bird_client.get_xeno_canto_recordings_by_species(selected_bird)
                             
-                            # Add markers for each recording
-                            for _, rec in xeno_df.iterrows():
-                                if 'lat' in rec and 'lng' in rec:
-                                    # Create popup content
-                                    popup_content = f"""
-                                    <b>{rec.get('en', 'Unknown species')}</b><br>
-                                    Scientific name: {rec.get('sci', 'Unknown')}<br>
-                                    Recordist: {rec.get('rec', 'Unknown')}<br>
-                                    Date: {rec.get('date', 'Unknown date')}<br>
-                                    <a href="{rec.get('url', '#')}" target="_blank">View on Xeno-canto</a>
-                                    """
-                                    
-                                    # Add marker
-                                    folium.CircleMarker(
-                                        location=[float(rec['lat']), float(rec['lng'])],
-                                        radius=5,
-                                        popup=popup_content,
-                                        color='purple',
-                                        fill=True,
-                                        fill_color='purple',
-                                        fill_opacity=0.7
-                                    ).add_to(xeno_map)
-                            
-                            # Display the map
-                            st.components.v1.html(folium.Figure().add_child(xeno_map)._repr_html_(), height=400)
-                            
-                            # Display featured recordings with spectrograms
-                            st.write("##### Featured Bird Sounds")
-                            
-                            # Get top 3 recordings with spectrograms
-                            featured_recordings = xeno_df.head(3).to_dict('records') if len(xeno_df) > 0 else []
-                            
-                            for rec in featured_recordings:
-                                with st.expander(f"{rec.get('en', 'Unknown bird')} - {rec.get('type', 'Call')}"):
-                                    cols = st.columns([2, 1])
-                                    
-                                    with cols[0]:
-                                        # Display spectrogram if available
-                                        if 'sono' in rec and rec['sono']:
-                                            st.image(rec['sono']['small'], caption=f"Spectrogram of {rec.get('en', 'bird')} {rec.get('type', 'call')}")
+                            if not xeno_df.empty:
+                                # Display summary
+                                st.write(f"Found {len(xeno_df)} sound recordings for {selected_bird}")
+                                
+                                # Display featured recordings with spectrograms
+                                st.write("##### Featured Recordings")
+                                
+                                # Get top 3 recordings with spectrograms
+                                featured_recordings = xeno_df.head(3).to_dict('records') if len(xeno_df) > 0 else []
+                                
+                                for rec in featured_recordings:
+                                    with st.expander(f"{rec.get('type', 'Call')} recorded by {rec.get('rec', 'Unknown')}"):
+                                        cols = st.columns([2, 1])
                                         
-                                        # Display recording info
-                                        st.write(f"**Species:** {rec.get('en', 'Unknown')} ({rec.get('sci', 'Unknown')})")
-                                        st.write(f"**Recorded by:** {rec.get('rec', 'Unknown')}")
-                                        st.write(f"**Location:** {rec.get('loc', 'Unknown')}")
-                                        st.write(f"**Date:** {rec.get('date', 'Unknown')}")
-                                        st.write(f"**Quality rating:** {rec.get('q', 'Unknown')}")
-                                    
-                                    with cols[1]:
-                                        # Display audio player if file is available
-                                        if 'file' in rec and rec['file']:
-                                            st.audio(rec['file'], format='audio/mp3')
+                                        with cols[0]:
+                                            # Display spectrogram if available
+                                            if 'sono' in rec and rec['sono']:
+                                                # Fix protocol-relative URLs by adding https:
+                                                spectrogram_url = rec['sono']['small']
+                                                if spectrogram_url.startswith('//'):
+                                                    spectrogram_url = 'https:' + spectrogram_url
+                                                
+                                                # Display the image using the fixed URL
+                                                st.markdown(f"![Spectrogram of {selected_bird}]({spectrogram_url})")
+                                                st.caption(f"Spectrogram of {selected_bird} {rec.get('type', 'call')}")
+                                            
+                                            # Display recording info
+                                            st.write(f"**Location:** {rec.get('loc', 'Unknown')}, {rec.get('cnt', 'Unknown')}")
+                                            st.write(f"**Date:** {rec.get('date', 'Unknown')}")
+                                            st.write(f"**Quality rating:** {rec.get('q', 'Unknown')}")
                                         
-                                        # Add link to Xeno-canto
-                                        if 'url' in rec:
-                                            st.markdown(f"[View on Xeno-canto]({rec['url']})")
+                                        with cols[1]:
+                                            # Display audio player if file is available
+                                            if 'file' in rec and rec['file']:
+                                                audio_url = rec['file']
+                                                if audio_url.startswith('//'):
+                                                    audio_url = 'https:' + audio_url
+                                                
+                                                # Create an HTML audio player
+                                                st.markdown(f"""
+                                                <audio controls style="width: 100%;">
+                                                    <source src="{audio_url}" type="audio/mpeg">
+                                                    Your browser does not support the audio element.
+                                                </audio>
+                                                """, unsafe_allow_html=True)
+                                            
+                                            # Add link to Xeno-canto
+                                            if 'url' in rec:
+                                                st.markdown(f"[View on Xeno-canto]({rec['url']})")
                             
-                            # Display the data table
-                            st.write("##### All Recordings")
-                            
-                            # Clean up the dataframe for display
-                            display_cols = ['en', 'sci', 'rec', 'cnt', 'loc', 'date', 'q']
-                            display_df = xeno_df[display_cols].copy() if all(col in xeno_df.columns for col in display_cols) else xeno_df
-                            
-                            # Rename columns
-                            display_df = display_df.rename(columns={
-                                'en': 'Common Name',
-                                'sci': 'Scientific Name',
-                                'rec': 'Recordist',
-                                'cnt': 'Country',
-                                'loc': 'Location',
-                                'date': 'Date',
-                                'q': 'Quality'
-                            })
-                            
-                            st.dataframe(display_df, use_container_width=True)
+                                # Display the data table
+                                st.write("##### All Recordings")
+                                
+                                # Clean up the dataframe for display
+                                display_cols = ['type', 'rec', 'cnt', 'loc', 'date', 'q']
+                                display_df = xeno_df[display_cols].copy() if all(col in xeno_df.columns for col in display_cols) else xeno_df
+                                
+                                # Rename columns
+                                display_df = display_df.rename(columns={
+                                    'type': 'Call Type',
+                                    'rec': 'Recordist',
+                                    'cnt': 'Country',
+                                    'loc': 'Location',
+                                    'date': 'Date',
+                                    'q': 'Quality'
+                                })
+                                
+                                st.dataframe(display_df, use_container_width=True)
+                            else:
+                                st.info(f"No sound recordings found for {selected_bird}. Try selecting a different bird.")
                         else:
-                            st.info("No bird sound recordings found for this location. Try expanding the search radius or choosing a different location.")
+                            st.info("No bird species identified for this location. Try a different location or adjust your search parameters.")
                     else:
                         st.warning("Xeno-canto data is not enabled. Enable it in the sidebar to see bird sound recordings.")
         else:
@@ -1318,4 +1470,64 @@ else:
 
 # Footer
 st.markdown("---")
-st.markdown("© 2025 South Asian Bird Hotspot Finder | Data sources: Simulated environmental data, eBird, BirdNet") 
+st.markdown("© 2025 South Asian Bird Hotspot Finder | Data sources: Simulated environmental data, eBird, BirdNet")
+
+# Add a download button for the results
+if 'result' in locals() and 'hotspots' in result and not result['hotspots'].empty:
+    st.write("### Download Results")
+    
+    # Create a function to convert the results to Excel
+    def to_excel():
+        # Create a Pandas Excel writer
+        output = io.BytesIO()
+        writer = pd.ExcelWriter(output, engine='xlsxwriter')
+        
+        # Write the hotspots to the Excel file
+        result['hotspots'].to_excel(writer, sheet_name='Hotspots', index=False)
+        
+        # Write the grid data to the Excel file if available
+        if 'grid' in result and not result['grid'].empty:
+            result['grid'].to_excel(writer, sheet_name='Grid Data', index=False)
+        
+        # Create a sheet for bird species
+        bird_species = []
+        habitat_to_birds = get_habitat_to_birds_mapping()
+        
+        # Extract birds from habitat mapping based on hotspot habitats
+        for _, hotspot in result['hotspots'].iterrows():
+            # Find habitats in this hotspot
+            present_habitats = []
+            for col in hotspot.index:
+                if col.startswith('is_') and hotspot[col] > 0:
+                    habitat_name = col.replace('is_', '').replace('_', ' ')
+                    present_habitats.append(habitat_name)
+            
+            # Get birds for these habitats
+            for habitat in present_habitats:
+                for habitat_key, birds in habitat_to_birds.items():
+                    if habitat in habitat_key or habitat_key in habitat:
+                        for bird in birds:
+                            bird_species.append({
+                                'Name': bird['name'],
+                                'Type': bird['type'],
+                                'Status': bird['status'],
+                                'Habitat': habitat.title()
+                            })
+        
+        # Convert to DataFrame and remove duplicates
+        if bird_species:
+            birds_df = pd.DataFrame(bird_species).drop_duplicates()
+            birds_df.to_excel(writer, sheet_name='Bird Species', index=False)
+        
+        # Close the writer and get the output
+        writer.close()
+        return output.getvalue()
+    
+    # Add the download button
+    excel_data = to_excel()
+    st.download_button(
+        label="Download Excel Report",
+        data=excel_data,
+        file_name=f"bird_hotspots_{location_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.ms-excel"
+    ) 
