@@ -308,14 +308,532 @@ st.sidebar.header("Location Settings")
 # Location input options
 location_method = st.sidebar.radio(
     "Select location method:",
-    ["Search by City/Locality", "Enter Coordinates", "Use Current Location"]
+    ["Search by City/Locality", "Enter Coordinates", "Use Current Location", "Bulk Analysis - Major Indian Cities"]
 )
+
+# Define major Indian cities with population > 1 million
+MAJOR_INDIAN_CITIES = {
+    # Mega Cities (10M+)
+    "Delhi": {"lat": 28.6139, "lon": 77.2090, "population": "30.3M", "region": "North India"},
+    "Mumbai": {"lat": 19.0760, "lon": 72.8777, "population": "20.4M", "region": "Western India"},
+    "Kolkata": {"lat": 22.5726, "lon": 88.3639, "population": "14.9M", "region": "Eastern India"},
+    "Bangalore": {"lat": 12.9716, "lon": 77.5946, "population": "12.3M", "region": "Southern India"},
+    "Chennai": {"lat": 13.0827, "lon": 80.2707, "population": "10.9M", "region": "Southern India"},
+    
+    # Large Cities (5-10M)
+    "Hyderabad": {"lat": 17.3850, "lon": 78.4867, "population": "9.7M", "region": "Southern India"},
+    "Ahmedabad": {"lat": 23.0225, "lon": 72.5714, "population": "7.2M", "region": "Western India"},
+    "Pune": {"lat": 18.5204, "lon": 73.8567, "population": "6.6M", "region": "Western India"},
+    "Surat": {"lat": 21.1702, "lon": 72.8311, "population": "6.1M", "region": "Western India"},
+    
+    # Medium-Large Cities (3-5M)
+    "Lucknow": {"lat": 26.8467, "lon": 80.9462, "population": "3.4M", "region": "North India"},
+    "Jaipur": {"lat": 26.9124, "lon": 75.7873, "population": "3.1M", "region": "North India"},
+    "Kanpur": {"lat": 26.4499, "lon": 80.3319, "population": "3.0M", "region": "North India"},
+    "Nagpur": {"lat": 21.1458, "lon": 79.0882, "population": "2.9M", "region": "Central India"},
+    "Indore": {"lat": 22.7196, "lon": 75.8577, "population": "2.8M", "region": "Central India"},
+    "Thane": {"lat": 19.2183, "lon": 72.9781, "population": "2.7M", "region": "Western India"},
+    "Bhopal": {"lat": 23.2599, "lon": 77.4126, "population": "2.6M", "region": "Central India"},
+    "Visakhapatnam": {"lat": 17.6868, "lon": 83.2185, "population": "2.5M", "region": "Southern India"},
+    "Pimpri-Chinchwad": {"lat": 18.6279, "lon": 73.7993, "population": "2.4M", "region": "Western India"},
+    "Patna": {"lat": 25.5941, "lon": 85.1376, "population": "2.3M", "region": "Eastern India"},
+    
+    # Cities (2-3M)
+    "Vadodara": {"lat": 22.3072, "lon": 73.1812, "population": "2.2M", "region": "Western India"},
+    "Ghaziabad": {"lat": 28.6692, "lon": 77.4538, "population": "2.1M", "region": "North India"},
+    "Ludhiana": {"lat": 30.9010, "lon": 75.8573, "population": "2.1M", "region": "North India"},
+    "Agra": {"lat": 27.1767, "lon": 78.0081, "population": "2.0M", "region": "North India"},
+    "Nashik": {"lat": 19.9975, "lon": 73.7898, "population": "2.0M", "region": "Western India"},
+    "Faridabad": {"lat": 28.4089, "lon": 77.3178, "population": "1.9M", "region": "North India"},
+    "Meerut": {"lat": 28.9845, "lon": 77.7064, "population": "1.9M", "region": "North India"},
+    "Rajkot": {"lat": 22.3039, "lon": 70.8022, "population": "1.8M", "region": "Western India"},
+    "Kalyan-Dombivali": {"lat": 19.2403, "lon": 73.1305, "population": "1.8M", "region": "Western India"},
+    "Vasai-Virar": {"lat": 19.3919, "lon": 72.8397, "population": "1.7M", "region": "Western India"},
+    
+    # Additional Major Cities
+    "Varanasi": {"lat": 25.3176, "lon": 82.9739, "population": "1.7M", "region": "North India"},
+    "Srinagar": {"lat": 34.0837, "lon": 74.7973, "population": "1.7M", "region": "North India"},
+    "Aurangabad": {"lat": 19.8762, "lon": 75.3433, "population": "1.7M", "region": "Western India"},
+    "Dhanbad": {"lat": 23.7957, "lon": 86.4304, "population": "1.6M", "region": "Eastern India"},
+    "Amritsar": {"lat": 31.6340, "lon": 74.8723, "population": "1.6M", "region": "North India"},
+    "Navi Mumbai": {"lat": 19.0330, "lon": 73.0297, "population": "1.6M", "region": "Western India"},
+    "Allahabad": {"lat": 25.4358, "lon": 81.8463, "population": "1.6M", "region": "North India"},
+    "Ranchi": {"lat": 23.3441, "lon": 85.3096, "population": "1.5M", "region": "Eastern India"},
+    "Howrah": {"lat": 22.5958, "lon": 88.2636, "population": "1.5M", "region": "Eastern India"},
+    "Coimbatore": {"lat": 11.0168, "lon": 76.9558, "population": "1.5M", "region": "Southern India"},
+    
+    # Emerging Cities
+    "Jabalpur": {"lat": 23.1815, "lon": 79.9864, "population": "1.4M", "region": "Central India"},
+    "Gwalior": {"lat": 26.2183, "lon": 78.1828, "population": "1.4M", "region": "Central India"},
+    "Vijayawada": {"lat": 16.5062, "lon": 80.6480, "population": "1.4M", "region": "Southern India"},
+    "Jodhpur": {"lat": 26.2389, "lon": 73.0243, "population": "1.3M", "region": "North India"},
+    "Madurai": {"lat": 9.9252, "lon": 78.1198, "population": "1.3M", "region": "Southern India"},
+    "Raipur": {"lat": 21.2514, "lon": 81.6296, "population": "1.3M", "region": "Central India"},
+    "Kota": {"lat": 25.2138, "lon": 75.8648, "population": "1.2M", "region": "North India"},
+    "Chandigarh": {"lat": 30.7333, "lon": 76.7794, "population": "1.2M", "region": "North India"},
+    "Guwahati": {"lat": 26.1445, "lon": 91.7362, "population": "1.2M", "region": "Northeast India"},
+    "Solapur": {"lat": 17.6599, "lon": 75.9064, "population": "1.2M", "region": "Western India"},
+    
+    # Additional Cities
+    "Hubli-Dharwad": {"lat": 15.3647, "lon": 75.1240, "population": "1.2M", "region": "Southern India"},
+    "Mysore": {"lat": 12.2958, "lon": 76.6394, "population": "1.2M", "region": "Southern India"},
+    "Tiruchirappalli": {"lat": 10.7905, "lon": 78.7047, "population": "1.1M", "region": "Southern India"},
+    "Bareilly": {"lat": 28.3670, "lon": 79.4304, "population": "1.1M", "region": "North India"},
+    "Aligarh": {"lat": 27.8974, "lon": 78.0880, "population": "1.1M", "region": "North India"},
+    "Tiruppur": {"lat": 11.1085, "lon": 77.3411, "population": "1.1M", "region": "Southern India"},
+    "Gurugram": {"lat": 28.4595, "lon": 77.0266, "population": "1.1M", "region": "North India"},
+    "Moradabad": {"lat": 28.8386, "lon": 78.7733, "population": "1.1M", "region": "North India"},
+    "Jalandhar": {"lat": 31.3260, "lon": 75.5762, "population": "1.1M", "region": "North India"},
+    "Bhubaneswar": {"lat": 20.2961, "lon": 85.8245, "population": "1.1M", "region": "Eastern India"},
+    
+    # More Cities
+    "Salem": {"lat": 11.6643, "lon": 78.1460, "population": "1.0M", "region": "Southern India"},
+    "Warangal": {"lat": 18.0000, "lon": 79.5833, "population": "1.0M", "region": "Southern India"},
+    "Mira-Bhayandar": {"lat": 19.2952, "lon": 72.8547, "population": "1.0M", "region": "Western India"},
+    "Thiruvananthapuram": {"lat": 8.5241, "lon": 76.9366, "population": "1.0M", "region": "Southern India"},
+    "Bhiwandi": {"lat": 19.2956, "lon": 73.0478, "population": "1.0M", "region": "Western India"},
+    "Saharanpur": {"lat": 29.9680, "lon": 77.5552, "population": "1.0M", "region": "North India"},
+    "Gorakhpur": {"lat": 26.7606, "lon": 83.3732, "population": "1.0M", "region": "North India"},
+    "Guntur": {"lat": 16.3067, "lon": 80.4365, "population": "1.0M", "region": "Southern India"},
+    "Bikaner": {"lat": 28.0229, "lon": 73.3119, "population": "1.0M", "region": "North India"},
+    "Amravati": {"lat": 20.9374, "lon": 77.7796, "population": "1.0M", "region": "Western India"}
+}
 
 # Initialize variables
 latitude, longitude = None, None
 location_name = "Selected Location"
 search_radius = st.sidebar.slider("Search radius (km)", 5, 100, 25)
 current_date = st.sidebar.date_input("Date for prediction", datetime.now())
+
+# Data source settings (moved up)
+st.sidebar.header("Data Sources")
+use_ebird = st.sidebar.checkbox("Use eBird Data", value=True)
+use_gbif = st.sidebar.checkbox("Use GBIF Data", value=True)
+use_xeno_canto = st.sidebar.checkbox("Use Xeno-canto Data", value=False)
+
+# Add API key input (with password masking)
+if use_ebird:
+    ebird_api_key = st.sidebar.text_input("eBird API Key", 
+                                         value=EBIRD_API_KEY if EBIRD_API_KEY else "",
+                                         type="password")
+    if not ebird_api_key:
+        st.sidebar.warning("eBird API key is required to use eBird data")
+else:
+    ebird_api_key = ""
+
+# Add bulk analysis section
+if location_method == "Bulk Analysis - Major Indian Cities":
+    st.write("### Bulk Analysis - Major Indian Cities")
+    st.write("This will analyze bird hotspots for all major Indian cities with population > 1 million.")
+    
+    # Initialize session state for bulk analysis
+    if 'bulk_analysis_results' not in st.session_state:
+        st.session_state.bulk_analysis_results = {}
+    if 'bulk_analysis_progress' not in st.session_state:
+        st.session_state.bulk_analysis_progress = 0
+    if 'bulk_analysis_running' not in st.session_state:
+        st.session_state.bulk_analysis_running = False
+    if 'current_city_details' not in st.session_state:
+        st.session_state.current_city_details = None
+    
+    # Create columns for stats
+    stat_cols = st.columns(4)
+    with stat_cols[0]:
+        st.metric("Total Cities", len(MAJOR_INDIAN_CITIES))
+    with stat_cols[1]:
+        processed_cities = len(st.session_state.bulk_analysis_results)
+        st.metric("Processed", processed_cities)
+    with stat_cols[2]:
+        if processed_cities > 0:
+            avg_score = np.mean([
+                city_result['data']['hotspots']['hotspot_score'].max() 
+                for city_result in st.session_state.bulk_analysis_results.values()
+                if 'data' in city_result and 'hotspots' in city_result['data']
+            ])
+            st.metric("Avg Top Score", f"{avg_score:.2f}")
+    with stat_cols[3]:
+        if processed_cities > 0:
+            total_hotspots = sum([
+                len(city_result['data']['hotspots'])
+                for city_result in st.session_state.bulk_analysis_results.values()
+                if 'data' in city_result and 'hotspots' in city_result['data']
+            ])
+            st.metric("Total Hotspots", total_hotspots)
+    
+    # Create a progress bar and status message
+    progress_bar = st.progress(st.session_state.bulk_analysis_progress)
+    status_text = st.empty()
+    
+    # Add region filter
+    regions = sorted(list(set(city['region'] for city in MAJOR_INDIAN_CITIES.values())))
+    selected_regions = st.multiselect(
+        "Filter by Region",
+        regions,
+        default=regions
+    )
+    
+    # Filter cities by selected regions
+    filtered_cities = {
+        name: data for name, data in MAJOR_INDIAN_CITIES.items()
+        if data['region'] in selected_regions
+    }
+    
+    # Add a button to start bulk analysis
+    if st.button("Start Bulk Analysis") and not st.session_state.bulk_analysis_running:
+        st.session_state.bulk_analysis_running = True
+        st.session_state.bulk_analysis_results = {}
+        st.session_state.bulk_analysis_progress = 0
+        
+        total_cities = len(filtered_cities)
+        
+        # Process each city
+        for i, (city_name, city_data) in enumerate(filtered_cities.items(), 1):
+            status_text.write(f"Processing {city_name} ({city_data['region']})...")
+            st.session_state.current_city_details = f"Analyzing {city_name} - Population: {city_data['population']}"
+            
+            try:
+                # Run the hotspot analysis for this city
+                predictor = south_asian_bird_hotspot.SouthAsianBirdHotspotPredictor(
+                    region_bbox=(
+                        city_data['lat'] - search_radius/111,
+                        city_data['lon'] - search_radius/111,
+                        city_data['lat'] + search_radius/111,
+                        city_data['lon'] + search_radius/111
+                    ),
+                    grid_size=0.02
+                )
+                
+                result = predictor.process_for_current_date(
+                    latitude=city_data['lat'],
+                    longitude=city_data['lon'],
+                    radius_km=search_radius,
+                    date=current_date,
+                    use_ebird=use_ebird,
+                    use_gbif=use_gbif,
+                    use_xeno_canto=use_xeno_canto,
+                    ebird_api_key=ebird_api_key if use_ebird else None
+                )
+                
+                # Get habitat and species information
+                habitat_to_birds = get_habitat_to_birds_mapping()
+                species_info = []
+                
+                if 'hotspots' in result:
+                    for _, hotspot in result['hotspots'].iterrows():
+                        # Find habitats in this hotspot
+                        present_habitats = []
+                        for col in hotspot.index:
+                            if col.startswith('is_') and hotspot[col] > 0:
+                                habitat_name = col.replace('is_', '').replace('_', ' ')
+                                present_habitats.append(habitat_name)
+                        
+                        # Get birds for these habitats
+                        for habitat in present_habitats:
+                            for habitat_key, birds in habitat_to_birds.items():
+                                if habitat in habitat_key or habitat_key in habitat:
+                                    for bird in birds:
+                                        species_info.append({
+                                            'name': bird['name'],
+                                            'type': bird['type'],
+                                            'status': bird['status'],
+                                            'habitat': habitat
+                                        })
+                
+                # Store the results with additional information
+                st.session_state.bulk_analysis_results[city_name] = {
+                    'data': result,
+                    'population': city_data['population'],
+                    'region': city_data['region'],
+                    'coordinates': {'lat': city_data['lat'], 'lon': city_data['lon']},
+                    'species_info': species_info,
+                    'habitats': list(set(info['habitat'] for info in species_info))
+                }
+                
+            except Exception as e:
+                st.error(f"Error processing {city_name}: {str(e)}")
+            
+            # Update progress
+            st.session_state.bulk_analysis_progress = i / total_cities
+            progress_bar.progress(st.session_state.bulk_analysis_progress)
+        
+        st.session_state.bulk_analysis_running = False
+        status_text.write("Bulk analysis completed!")
+    
+    # Display current city being processed
+    if st.session_state.current_city_details:
+        st.info(st.session_state.current_city_details)
+    
+    # Display results if available
+    if st.session_state.bulk_analysis_results:
+        st.write("### Analysis Results")
+        
+        # Create tabs for different views
+        result_tabs = st.tabs(["Summary", "Regional Analysis", "Species Insights", "Habitat Analysis", "Detailed View"])
+        
+        with result_tabs[0]:
+            # Create a summary table
+            summary_data = []
+            for city_name, city_result in st.session_state.bulk_analysis_results.items():
+                if 'data' in city_result and 'hotspots' in city_result['data']:
+                    hotspots_df = city_result['data']['hotspots']
+                    summary_data.append({
+                        'City': city_name,
+                        'Region': city_result['region'],
+                        'Population': city_result['population'],
+                        'Top Hotspot Score': hotspots_df['hotspot_score'].max() if 'hotspot_score' in hotspots_df.columns else 'N/A',
+                        'Number of Hotspots': len(hotspots_df),
+                        'Average Score': hotspots_df['hotspot_score'].mean() if 'hotspot_score' in hotspots_df.columns else 'N/A',
+                        'Unique Species': len(set(species['name'] for species in city_result['species_info'])),
+                        'Habitat Types': len(city_result['habitats'])
+                    })
+            
+            if summary_data:
+                summary_df = pd.DataFrame(summary_data)
+                st.dataframe(summary_df, use_container_width=True)
+        
+        with result_tabs[1]:
+            st.write("#### Regional Bird Hotspot Analysis")
+            
+            # Group by region
+            region_data = {}
+            for city_name, city_result in st.session_state.bulk_analysis_results.items():
+                region = city_result['region']
+                if region not in region_data:
+                    region_data[region] = {
+                        'cities': 0,
+                        'total_hotspots': 0,
+                        'avg_score': 0,
+                        'species_set': set(),
+                        'habitat_set': set()
+                    }
+                
+                region_data[region]['cities'] += 1
+                if 'data' in city_result and 'hotspots' in city_result['data']:
+                    region_data[region]['total_hotspots'] += len(city_result['data']['hotspots'])
+                    region_data[region]['avg_score'] += city_result['data']['hotspots']['hotspot_score'].mean()
+                
+                # Add species and habitats
+                region_data[region]['species_set'].update(species['name'] for species in city_result['species_info'])
+                region_data[region]['habitat_set'].update(city_result['habitats'])
+            
+            # Create region summary
+            region_summary = []
+            for region, data in region_data.items():
+                if data['cities'] > 0:
+                    region_summary.append({
+                        'Region': region,
+                        'Cities Analyzed': data['cities'],
+                        'Total Hotspots': data['total_hotspots'],
+                        'Avg Score': data['avg_score'] / data['cities'],
+                        'Unique Species': len(data['species_set']),
+                        'Habitat Types': len(data['habitat_set'])
+                    })
+            
+            region_df = pd.DataFrame(region_summary)
+            st.dataframe(region_df, use_container_width=True)
+            
+            # Create a map of all hotspots
+            st.write("#### Hotspot Distribution Map")
+            m = folium.Map(location=[20.5937, 78.9629], zoom_start=5)
+            
+            # Add markers for each city
+            for city_name, city_result in st.session_state.bulk_analysis_results.items():
+                if 'data' in city_result and 'hotspots' in city_result['data']:
+                    # Add a marker for the city
+                    folium.CircleMarker(
+                        location=[city_result['coordinates']['lat'], city_result['coordinates']['lon']],
+                        radius=10,
+                        popup=f"{city_name}<br>Population: {city_result['population']}<br>Hotspots: {len(city_result['data']['hotspots'])}",
+                        color='red',
+                        fill=True
+                    ).add_to(m)
+            
+            # Display the map
+            st_folium(m, width=800)
+        
+        with result_tabs[2]:
+            st.write("#### Species Distribution Analysis")
+            
+            # Collect all species data
+            all_species = []
+            for city_result in st.session_state.bulk_analysis_results.values():
+                all_species.extend(city_result['species_info'])
+            
+            # Create species summary
+            species_summary = pd.DataFrame(all_species)
+            species_counts = species_summary['name'].value_counts()
+            
+            # Display top species
+            st.write("##### Most Common Bird Species")
+            top_species = species_counts.head(10)
+            
+            # Create a bar chart
+            fig, ax = plt.subplots(figsize=(10, 6))
+            top_species.plot(kind='bar', ax=ax)
+            plt.xticks(rotation=45, ha='right')
+            plt.title("Top 10 Most Common Bird Species")
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Species status distribution
+            st.write("##### Bird Status Distribution")
+            status_dist = species_summary['status'].value_counts()
+            
+            # Create a pie chart
+            fig, ax = plt.subplots(figsize=(8, 8))
+            plt.pie(status_dist, labels=status_dist.index, autopct='%1.1f%%')
+            plt.title("Distribution of Bird Status")
+            st.pyplot(fig)
+        
+        with result_tabs[3]:
+            st.write("#### Habitat Analysis")
+            
+            # Collect all habitat data
+            all_habitats = []
+            for city_result in st.session_state.bulk_analysis_results.values():
+                all_habitats.extend(city_result['habitats'])
+            
+            # Create habitat summary
+            habitat_counts = pd.Series(all_habitats).value_counts()
+            
+            # Display habitat distribution
+            st.write("##### Habitat Distribution")
+            
+            # Create a bar chart
+            fig, ax = plt.subplots(figsize=(10, 6))
+            habitat_counts.plot(kind='bar', ax=ax)
+            plt.xticks(rotation=45, ha='right')
+            plt.title("Distribution of Habitat Types")
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Show habitat-species relationship
+            st.write("##### Species per Habitat Type")
+            habitat_species = {}
+            for city_result in st.session_state.bulk_analysis_results.values():
+                for species in city_result['species_info']:
+                    if species['habitat'] not in habitat_species:
+                        habitat_species[species['habitat']] = set()
+                    habitat_species[species['habitat']].add(species['name'])
+            
+            habitat_species_count = {habitat: len(species) for habitat, species in habitat_species.items()}
+            
+            # Create a bar chart
+            fig, ax = plt.subplots(figsize=(10, 6))
+            pd.Series(habitat_species_count).plot(kind='bar', ax=ax)
+            plt.xticks(rotation=45, ha='right')
+            plt.title("Number of Unique Species per Habitat")
+            plt.tight_layout()
+            st.pyplot(fig)
+        
+        with result_tabs[4]:
+            st.write("#### Detailed City Analysis")
+            
+            # Let user select a city
+            selected_city = st.selectbox(
+                "Select a city for detailed analysis",
+                list(st.session_state.bulk_analysis_results.keys())
+            )
+            
+            if selected_city:
+                city_result = st.session_state.bulk_analysis_results[selected_city]
+                
+                # Display city stats
+                st.write(f"##### {selected_city} Statistics")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Population", city_result['population'])
+                with col2:
+                    st.metric("Region", city_result['region'])
+                with col3:
+                    if 'data' in city_result and 'hotspots' in city_result['data']:
+                        st.metric("Number of Hotspots", len(city_result['data']['hotspots']))
+                
+                # Display hotspots on a map
+                st.write("##### Hotspot Locations")
+                if 'data' in city_result and 'hotspots' in city_result['data']:
+                    m = folium.Map(
+                        location=[city_result['coordinates']['lat'], city_result['coordinates']['lon']],
+                        zoom_start=11
+                    )
+                    
+                    # Add markers for each hotspot
+                    for _, hotspot in city_result['data']['hotspots'].iterrows():
+                        folium.CircleMarker(
+                            location=[hotspot['latitude'], hotspot['longitude']],
+                            radius=8,
+                            popup=f"Score: {hotspot['hotspot_score']:.2f}",
+                            color='red',
+                            fill=True
+                        ).add_to(m)
+                    
+                    # Display the map
+                    st_folium(m, width=800)
+                
+                # Display species information
+                st.write("##### Local Species")
+                species_df = pd.DataFrame(city_result['species_info']).drop_duplicates()
+                st.dataframe(species_df, use_container_width=True)
+            
+            # Add download buttons
+            st.write("### Download Options")
+            
+            # Function to create detailed Excel report
+            def create_bulk_excel():
+                output = io.BytesIO()
+                writer = pd.ExcelWriter(output, engine='xlsxwriter')
+                
+                # Write summary sheet
+                summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                
+                # Write regional analysis
+                region_df.to_excel(writer, sheet_name='Regional_Analysis', index=False)
+                
+                # Write species analysis
+                species_summary.to_excel(writer, sheet_name='Species_Analysis', index=False)
+                
+                # Write detailed sheets for each city
+                for city_name, city_result in st.session_state.bulk_analysis_results.items():
+                    if 'data' in city_result and 'hotspots' in city_result['data']:
+                        # Write hotspots
+                        city_sheet_name = f"{city_name[:28]}_Hotspots"  # Excel has 31 char limit
+                        city_result['data']['hotspots'].to_excel(writer, sheet_name=city_sheet_name, index=False)
+                        
+                        # Write species info
+                        species_sheet_name = f"{city_name[:28]}_Species"
+                        pd.DataFrame(city_result['species_info']).to_excel(writer, sheet_name=species_sheet_name, index=False)
+                        
+                        # Write grid data
+                        if 'grid' in city_result['data']:
+                            grid_sheet_name = f"{city_name[:28]}_Grid"
+                            city_result['data']['grid'].to_excel(writer, sheet_name=grid_sheet_name, index=False)
+                
+                writer.close()
+                return output.getvalue()
+            
+            # Add download buttons
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Download summary CSV
+                csv = summary_df.to_csv(index=False)
+                st.download_button(
+                    label="Download Summary (CSV)",
+                    data=csv,
+                    file_name=f"bird_hotspots_summary_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+            
+            with col2:
+                # Download detailed Excel report
+                excel_data = create_bulk_excel()
+                st.download_button(
+                    label="Download Detailed Report (Excel)",
+                    data=excel_data,
+                    file_name=f"bird_hotspots_detailed_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
 
 # Process location input
 if location_method == "Search by City/Locality":
@@ -407,20 +925,6 @@ elif location_method == "Use Current Location":
                 st.session_state.run_analysis = True
 
 # Additional settings
-st.sidebar.header("Data Sources")
-use_ebird = st.sidebar.checkbox("Use eBird Data", value=True)
-use_gbif = st.sidebar.checkbox("Use GBIF Data", value=True)
-use_xeno_canto = st.sidebar.checkbox("Use Xeno-canto Data", value=False)
-
-# Add API key input (with password masking)
-if use_ebird:
-    ebird_api_key = st.sidebar.text_input("eBird API Key", 
-                                         value=EBIRD_API_KEY if EBIRD_API_KEY else "",
-                                         type="password")
-    if not ebird_api_key:
-        st.sidebar.warning("eBird API key is required to use eBird data")
-else:
-    ebird_api_key = ""
 
 # Remove the separate "Find Bird Hotspots" button since we now run immediately after location is set
 # Instead, add a Refresh button for when data source settings change
