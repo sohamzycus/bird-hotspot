@@ -81,7 +81,7 @@ class BirdDataClient:
                     logger.info(f"Retrieved {len(df)} eBird observations")
                     return df
                 else:
-                    logger.warning("No eBird observations found")
+                    logger.warning(f"No eBird observations found for coords ({lat:.4f}, {lng:.4f}) within {radius_km}km radius")
                     return pd.DataFrame()
             else:
                 logger.error(f"eBird API error: {response.status_code} - {response.text}")
@@ -148,7 +148,7 @@ class BirdDataClient:
                     logger.info(f"Retrieved {len(df)} GBIF occurrences")
                     return df
                 else:
-                    logger.warning("No GBIF occurrences found")
+                    logger.warning(f"No GBIF occurrences found for coords ({lat:.4f}, {lng:.4f}) within {radius_km}km radius")
                     return pd.DataFrame()
             else:
                 logger.error(f"GBIF API error: {response.status_code} - {response.text}")
