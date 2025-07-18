@@ -1540,8 +1540,16 @@ def analyze_and_display_single_location(latitude, longitude, location_name, sear
                     
                     # Species information
                     st.write("#### Bird Species Information")
-                    species_df = results_df.groupby('Species Name')['Bird Count'].sum().reset_index()
-                    species_df = species_df.sort_values('Bird Count', ascending=False)
+                    # Use proper column handling for species data
+                    if 'Scientific Name' in results_df.columns:
+                        # Group by scientific name with fun facts
+                        species_df = results_df.groupby(['Scientific Name', 'Common Name', 'Fun Fact'])['Bird Count'].sum().reset_index()
+                        species_df = species_df.sort_values('Bird Count', ascending=False)
+                    else:
+                        # Fallback for older data format
+                        species_df = results_df.groupby('Species Name')['Bird Count'].sum().reset_index()
+                        species_df = species_df.sort_values('Bird Count', ascending=False)
+                    
                     st.dataframe(species_df, use_container_width=True)
                     
                     # Download button
@@ -2089,9 +2097,12 @@ def display_dynamic_india_results(results_df, params):
     st.info("📊 Showing dynamic India-wide hotspot discovery results")
     
     if not results_df.empty:
-        # Summary statistics
+        # Summary statistics with proper column handling
         total_hotspots = len(results_df['Place'].unique())
-        total_species = len(results_df['Species Name'].unique())
+        
+        # Use correct column name for species count
+        species_col = 'Scientific Name' if 'Scientific Name' in results_df.columns else 'Species Name'
+        total_species = len(results_df[species_col].unique())
         total_birds = results_df['Bird Count'].sum()
         
         # Count hotspot types
@@ -2126,7 +2137,7 @@ def display_dynamic_india_results(results_df, params):
         st.write("#### 🗺️ Regional Hotspot Distribution")
         regional_analysis = results_df.groupby('Region').agg({
             'Place': 'nunique',
-            'Species Name': 'nunique', 
+            species_col: 'nunique', 
             'Bird Count': 'sum'
         }).reset_index()
         regional_analysis.columns = ['Region', 'Hotspots Found', 'Unique Species', 'Total Birds']
@@ -2185,14 +2196,15 @@ def display_dynamic_india_results(results_df, params):
         # 3. By place name (alphabetical)
         display_df['Hotspot_Priority'] = display_df['Hotspot Type'].map({
             'Red Hotspot (20+ species)': 1,
-            'Orange Hotspot (10-19 species)': 2
+            'Orange Hotspot (10-19 species)': 2,
+            'Yellow Hotspot (5-9 species)': 3
         })
         
         display_df = display_df.sort_values([
             'Hotspot_Priority',           # Red hotspots first
             'Total Species at Location',  # Highest species count first
             'Place',                      # Alphabetical by place name
-            'Species Name'                # Alphabetical by species name
+            species_col                   # Alphabetical by species name (scientific or common)
         ], ascending=[True, False, True, True])
         
         # Remove the temporary sorting column
@@ -2609,7 +2621,9 @@ def run_all_india_analysis(hotspot_df, bird_client, sample_percentage, search_ra
                             'Tehsil': location['tehsil'],
                             'Latitude': location['latitude'],
                             'Longitude': location['longitude'],
-                            'Species Name': row['comName'],
+                            'Scientific Name': get_scientific_name_and_fun_fact(row['comName'])['scientific'],
+                            'Common Name': row['comName'],
+                            'Fun Fact': get_scientific_name_and_fun_fact(row['comName'])['fun_fact'],
                             'Species Count': row['count'],
                             'Search Radius (km)': search_radius
                         })
@@ -2659,8 +2673,9 @@ def display_all_india_results(results_df, current_params):
         
         # Show state-wise summary
         st.write("#### State-wise Summary")
+        species_col = 'Scientific Name' if 'Scientific Name' in results_df.columns else 'Species Name'
         state_summary = results_df.groupby('State').agg({
-            'Species Name': 'nunique',
+            species_col: 'nunique',
             'Species Count': 'sum',
             'Tehsil': 'nunique'
         }).reset_index()
@@ -2670,7 +2685,7 @@ def display_all_india_results(results_df, current_params):
         # Show top hotspots
         st.write("#### Top Bird Hotspots")
         hotspot_summary = results_df.groupby(['State', 'District', 'Tehsil', 'Latitude', 'Longitude']).agg({
-            'Species Name': 'nunique',
+            species_col: 'nunique',
             'Species Count': 'sum'
         }).reset_index()
         
