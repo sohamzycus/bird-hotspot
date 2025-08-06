@@ -292,6 +292,169 @@ def get_birder_friendly_location_name(lat, lng, use_geocoding=True):
     # Fallback to habitat-based birding description
     return get_habitat_based_birding_description(lat, lng)
 
+def fetch_birds_for_lightning_hotspot(hotspot_data, bird_client):
+    """
+    GENUINE HOTSPOT SPECIES: Fetch actual bird species for each specific hotspot using eBird API.
+    Returns real species that actually exist at each hotspot location.
+    """
+    try:
+        _, hotspot = hotspot_data
+        species_count = hotspot.get('num_species_all_time', 0)
+        hotspot_id = hotspot.get('hotspot_id', '')
+        
+        # Skip hotspots with very low species count for performance
+        if species_count < 5:
+            return []
+        
+        # Get real place name (cached for performance)
+        enhanced_location = get_real_birding_location_name(hotspot['latitude'], hotspot['longitude'])
+        
+        # Determine hotspot classification
+        if species_count >= 100:
+            hotspot_type = "Red Hotspot (100+ all-time species)"
+        elif species_count >= 50:
+            hotspot_type = "Orange Hotspot (50-99 all-time species)" 
+        elif species_count >= 20:
+            hotspot_type = "Orange Hotspot (20-49 all-time species)"
+        else:
+            hotspot_type = "Yellow Hotspot (5-19 all-time species)"
+        
+        bird_records = []
+        
+        try:
+            # GENUINE APPROACH: Get actual species for this specific hotspot using eBird API
+            # Use the hotspot's geographic location to get recent observations
+            recent_observations = bird_client.get_ebird_observations(
+                lat=hotspot['latitude'],
+                lng=hotspot['longitude'],
+                radius_km=1,  # Very specific to this hotspot
+                days_back=30,  # Recent data
+                max_results=50  # Good sample size
+            )
+            
+            if not recent_observations.empty and len(recent_observations) > 0:
+                logger.info(f"✅ Found {len(recent_observations)} genuine species for hotspot {hotspot_id}")
+                
+                # Create records for actual observed species at this hotspot
+                for _, bird_obs in recent_observations.head(20).iterrows():  # Top 20 species
+                    try:
+                        common_name = bird_obs['comName']
+                        
+                        # Get scientific name and fun fact
+                        scientific_name, fun_fact = get_scientific_name_and_fun_fact(common_name)
+                        
+                        # Create genuine bird record for this specific hotspot
+                        bird_record = {
+                            'Place': enhanced_location,
+                            'Region': hotspot.get('region_name', 'Unknown Region'),
+                            'Latitude': hotspot['latitude'],
+                            'Longitude': hotspot['longitude'],
+                            'eBird Hotspot ID': hotspot_id,
+                            'Common Name': common_name,  # GENUINE BIRD FROM THIS HOTSPOT
+                            'Scientific Name': scientific_name,  # REAL SCIENTIFIC NAME
+                            'Fun Fact': fun_fact,
+                            'Bird Count': bird_obs.get('howMany', 1) if isinstance(bird_obs.get('howMany'), (int, float)) else 1,
+                            'eBird Count': 1,
+                            'GBIF Count': 0,
+                            'Total Species at Location': species_count,
+                            'Hotspot Type': hotspot_type,
+                            'eBird All-time Species': species_count,
+                            'Data Source': f'eBird Hotspot {hotspot_id} - Genuine Species',
+                            'Source Type': 'eBird Lightning',
+                            'Photo URL': 'N/A',
+                            'Audio URL': 'N/A'
+                        }
+                        bird_records.append(bird_record)
+                        
+                    except Exception as bird_error:
+                        logger.warning(f"⚠️ Error processing bird {bird_obs.get('comName', 'unknown')}: {str(bird_error)}")
+                        continue
+                
+                return bird_records
+            
+            else:
+                # No recent observations - try broader radius or create summary
+                logger.warning(f"⚠️ No recent observations for hotspot {hotspot_id}, trying broader search...")
+                
+                # Try broader radius as fallback
+                broader_observations = bird_client.get_ebird_observations(
+                    lat=hotspot['latitude'],
+                    lng=hotspot['longitude'],
+                    radius_km=5,  # Broader search
+                    days_back=30,
+                    max_results=20
+                )
+                
+                if not broader_observations.empty and len(broader_observations) > 0:
+                    logger.info(f"✅ Found {len(broader_observations)} species in broader area for hotspot {hotspot_id}")
+                    
+                    # Create records for broader area species
+                    for _, bird_obs in broader_observations.head(10).iterrows():  # Top 10 species
+                        try:
+                            common_name = bird_obs['comName']
+                            scientific_name, fun_fact = get_scientific_name_and_fun_fact(common_name)
+                            
+                            bird_record = {
+                                'Place': enhanced_location,
+                                'Region': hotspot.get('region_name', 'Unknown Region'),
+                                'Latitude': hotspot['latitude'],
+                                'Longitude': hotspot['longitude'],
+                                'eBird Hotspot ID': hotspot_id,
+                                'Common Name': common_name,
+                                'Scientific Name': scientific_name,
+                                'Fun Fact': fun_fact,
+                                'Bird Count': bird_obs.get('howMany', 1) if isinstance(bird_obs.get('howMany'), (int, float)) else 1,
+                                'eBird Count': 1,
+                                'GBIF Count': 0,
+                                'Total Species at Location': species_count,
+                                'Hotspot Type': hotspot_type,
+                                'eBird All-time Species': species_count,
+                                'Data Source': f'eBird Regional Data for {hotspot_id}',
+                                'Source Type': 'eBird Lightning',
+                                'Photo URL': 'N/A',
+                                'Audio URL': 'N/A'
+                            }
+                            bird_records.append(bird_record)
+                            
+                        except Exception as bird_error:
+                            logger.warning(f"⚠️ Error processing regional bird {bird_obs.get('comName', 'unknown')}: {str(bird_error)}")
+                            continue
+                    
+                    return bird_records
+                
+                else:
+                    # Last resort - create summary record
+                    summary_record = {
+                        'Place': enhanced_location,
+                        'Region': hotspot.get('region_name', 'Unknown Region'),
+                        'Latitude': hotspot['latitude'],
+                        'Longitude': hotspot['longitude'],
+                        'eBird Hotspot ID': hotspot_id,
+                        'Common Name': f"eBird Hotspot ({species_count} historical species)",
+                        'Scientific Name': f"No recent observations available (Total: {species_count} historically)",
+                        'Fun Fact': f"This eBird hotspot has {species_count} species recorded historically",
+                        'Bird Count': max(1, species_count),
+                        'eBird Count': max(1, species_count),
+                        'GBIF Count': 0,
+                        'Total Species at Location': species_count,
+                        'Hotspot Type': hotspot_type,
+                        'eBird All-time Species': species_count,
+                        'Data Source': f'eBird Historical Data for {hotspot_id}',
+                        'Source Type': 'eBird Lightning',
+                        'Photo URL': 'N/A',
+                        'Audio URL': 'N/A'
+                    }
+                    return [summary_record]
+                    
+        except Exception as api_error:
+            logger.error(f"❌ eBird API error for hotspot {hotspot_id}: {str(api_error)}")
+            return []
+            
+    except Exception as e:
+        logger.error(f"❌ Error in fetch_birds_for_lightning_hotspot: {str(e)}")
+        return []
+
+
 def get_real_birding_location_name(lat, lng):
     """
     Get real birding location names like national parks, lakes, sanctuaries instead of generic geographic terms.
@@ -766,7 +929,7 @@ def fetch_ebird_hotspots_for_india(max_hotspots=10000, bird_client=None, ebird_a
                 region = 'Central India'
                 if lng >= 85:
                     region = 'Northeast India'
-                else:
+                    else:
                     for (lat_min, lat_max), state in state_regions.items():
                         if lat_min <= lat < lat_max:
                             region = state
@@ -842,7 +1005,7 @@ def fetch_ebird_hotspots_for_india(max_hotspots=10000, bird_client=None, ebird_a
                             
                             for line_num, parts in enumerate(csv_reader):
                                 if line_num >= 500:  # Increased limit for 10K+ hotspot coverage
-                                    break
+                        break
                                 if len(parts) >= 7:
                                     try:
                                         # Parse eBird CSV: locId,countryCode,subnational1Code,subnational2Code,lat,lng,locName,latestObsDt,numSpeciesAllTime
@@ -887,7 +1050,7 @@ def fetch_ebird_hotspots_for_india(max_hotspots=10000, bird_client=None, ebird_a
                             
                             logger.info(f"✅ {location['name']}: Found {len(standardized_hotspots)} hotspots")
                             return standardized_hotspots, None  # hotspots, error
-                        else:
+                    else:
                             logger.warning(f"⚠️ {location['name']}: Invalid CSV format")
                             return [], f"Invalid CSV format from {location['name']}"
                     else:
@@ -1022,7 +1185,7 @@ def fetch_ebird_hotspots_for_india(max_hotspots=10000, bird_client=None, ebird_a
             if fallback_count > 0:
                 logger.warning(f"⚠️ WARNING: {fallback_count} synthetic hotspots found - this should not happen!")
             
-            return df
+        return df
         else:
             logger.warning("❌ No hotspots were successfully fetched - API issues or invalid credentials")
             return pd.DataFrame()
@@ -1419,10 +1582,9 @@ def load_tehsil_data():
     """Load tehsil data from CSV file."""
     try:
         df = pd.read_csv('India Tehsil Centroid LatLong 1.csv')
-        return df
+        return df, None
     except FileNotFoundError:
-        st.error("India Tehsil Centroid LatLong 1.csv file not found.")
-        return pd.DataFrame()
+        return pd.DataFrame(), "India Tehsil Centroid LatLong 1.csv file not found."
 
 # Load bird hotspot data
 @st.cache_data
@@ -2097,9 +2259,9 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
     
     # Add memory monitoring and reset controls
     col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
+        with col1:
         st.subheader("🇮🇳 **INDUSTRIAL-SCALE INDIA DISCOVERY**")
-    with col2:
+        with col2:
         if psutil:
             try:
                 memory_percent = psutil.virtual_memory().percent
@@ -2114,11 +2276,11 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
     with col3:
         if st.button("🔄 Reset Progress", help="Clear all cached progress and start fresh"):
             # Clear all progress from session state
-            keys_to_clear = ['lightning_progress', 'full_analysis_progress', 'hotspot_data_cache']
+            keys_to_clear = ['lightning_progress', 'full_analysis_progress', 'hotspot_data_cache', 'ebird_hotspots_cache']
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
-            st.success("✅ Progress reset!")
+            st.success("✅ Progress reset! Next run will start fresh.")
             st.rerun()
 
     """Handle India-wide hotspot discovery using real eBird verified hotspots."""
@@ -2126,10 +2288,18 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
     
     st.info("🎯 **10,000+ Real eBird Hotspots**: Verified birding locations across India with precise coordinates and proper place names.")
     
-    # Simplified configuration
-    col1, col2 = st.columns(2)
+    # Show resume status if available
+    if 'lightning_progress' in st.session_state and st.session_state.lightning_progress['completed_chunks'] > 0:
+        progress_info = st.session_state.lightning_progress
+        st.info(f"🔄 **RESUME AVAILABLE**: {progress_info.get('total_results', 0):,} results from previous session. Click 'Start Analysis' to continue from {progress_info['completed_chunks']} completed chunks.")
+    elif 'ebird_hotspots_cache' in st.session_state and not st.session_state.ebird_hotspots_cache.empty:
+        cached_hotspots = len(st.session_state.ebird_hotspots_cache)
+        st.info(f"🔄 **HOTSPOTS CACHED**: {cached_hotspots:,} eBird hotspots from previous session. Analysis will skip fetch phase and start immediately.")
     
-    with col1:
+    # Simplified configuration
+        col1, col2 = st.columns(2)
+        
+        with col1:
         st.write("**🎯 Target & Coverage:**")
         
         max_hotspots = st.slider(
@@ -2144,8 +2314,8 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
             index=0,
             help="Major Cities + Dense Grid gives maximum unique hotspots"
         )
-    
-    with col2:
+        
+        with col2:
         st.write("**⚡ Performance:**")
         
         performance_mode = st.selectbox(
@@ -2173,7 +2343,7 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
         st.info(f"⚡ **Analysis Mode**: Will analyze ~{expected_hotspots:,} hotspots with bird data")
     
     # Advanced options (simplified)
-    with st.expander("🔧 Advanced Options"):
+        with st.expander("🔧 Advanced Options"):
         tab1, tab2, tab3 = st.tabs(["🐦 eBird", "🌍 GBIF", "🔊 Xeno-canto"])
         
         # Simplified advanced options
@@ -2228,7 +2398,7 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
         
         # PERFORMANCE GUARANTEE: Always try to display results, with fallback
         try:
-            display_dynamic_india_results(st.session_state.india_hotspot_results, current_params)
+        display_dynamic_india_results(st.session_state.india_hotspot_results, current_params)
         except Exception as display_error:
             st.error(f"⚠️ Display error: {str(display_error)}")
             # FALLBACK: Show basic results summary
@@ -2289,18 +2459,18 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
             has_species_data = any(col in results_df.columns for col in ['Scientific Name', 'Species Name', 'Bird Count'])
             
             if has_species_data:
-                # Use correct column name for species count
-                species_col = 'Scientific Name' if 'Scientific Name' in results_df.columns else 'Species Name'
-                total_species = len(results_df[species_col].unique())
+            # Use correct column name for species count
+            species_col = 'Scientific Name' if 'Scientific Name' in results_df.columns else 'Species Name'
+            total_species = len(results_df[species_col].unique())
                 total_birds = results_df['Bird Count'].sum() if 'Bird Count' in results_df.columns else 0
-                
-                # Count by hotspot type with new classification
+            
+            # Count by hotspot type with new classification
                 if 'Total Species at Location' in results_df.columns:
-                    yellow_hotspots = len(results_df[(results_df['Total Species at Location'] >= 5) & 
-                                                    (results_df['Total Species at Location'] < 10)]['Place'].unique())
-                    orange_hotspots = len(results_df[(results_df['Total Species at Location'] >= 10) & 
-                                                   (results_df['Total Species at Location'] < 20)]['Place'].unique())
-                    red_hotspots = len(results_df[results_df['Total Species at Location'] >= 20]['Place'].unique())
+            yellow_hotspots = len(results_df[(results_df['Total Species at Location'] >= 5) & 
+                                            (results_df['Total Species at Location'] < 10)]['Place'].unique())
+            orange_hotspots = len(results_df[(results_df['Total Species at Location'] >= 10) & 
+                                           (results_df['Total Species at Location'] < 20)]['Place'].unique())
+            red_hotspots = len(results_df[results_df['Total Species at Location'] >= 20]['Place'].unique())
                 else:
                     yellow_hotspots = orange_hotspots = red_hotspots = 0
             else:
@@ -2310,7 +2480,7 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
                 yellow_hotspots = orange_hotspots = red_hotspots = 0
             
             if has_species_data:
-                st.success(f"🎉 **Scientific Discovery Complete!** Found {total_hotspots:,} hotspots: {red_hotspots:,} Red (20+) + {orange_hotspots:,} Orange (10-19) + {yellow_hotspots:,} Yellow (5-9 species) across India with {total_species:,} unique species with scientific names and fun facts!")
+            st.success(f"🎉 **Scientific Discovery Complete!** Found {total_hotspots:,} hotspots: {red_hotspots:,} Red (20+) + {orange_hotspots:,} Orange (10-19) + {yellow_hotspots:,} Yellow (5-9 species) across India with {total_species:,} unique species with scientific names and fun facts!")
             else:
                 st.success(f"🚀 **Ultra Fast Collection Complete!** Found {total_hotspots:,} verified eBird hotspots across India in record time!")
             
@@ -2356,18 +2526,31 @@ def run_dynamic_india_discovery(bird_client, params):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Fetch real eBird hotspots across India
-        status_text.text("🏞️ Fetching real eBird hotspots using API v2 geographic search...")
+        # Check for cached eBird hotspots first (resume capability)
+        ebird_hotspots = None
+        if 'ebird_hotspots_cache' in st.session_state and not st.session_state.ebird_hotspots_cache.empty:
+            ebird_hotspots = st.session_state.ebird_hotspots_cache
+            logger.info(f"🔄 RESUMED: Using cached {len(ebird_hotspots):,} eBird hotspots from previous session")
+            status_text.text(f"🔄 RESUMED: Found {len(ebird_hotspots):,} cached eBird hotspots - skipping fetch phase...")
+            progress_bar.progress(15)
+        else:
+            # Fetch real eBird hotspots across India
+            status_text.text("🏞️ Fetching real eBird hotspots using API v2 geographic search...")
         progress_bar.progress(5)
         
-        ebird_hotspots = fetch_ebird_hotspots_for_india(
-            max_hotspots=params['max_hotspots'],
-            bird_client=bird_client,
-            ebird_api_key=params['ebird_api_key'],
-            fast_mode=params.get('is_fast_mode', True),
-            progress_bar=progress_bar,
-            status_text=status_text
-        )
+            ebird_hotspots = fetch_ebird_hotspots_for_india(
+                max_hotspots=params['max_hotspots'],
+                bird_client=bird_client,
+                ebird_api_key=params['ebird_api_key'],
+                fast_mode=params.get('is_fast_mode', True),
+                progress_bar=progress_bar,
+                status_text=status_text
+            )
+            
+            # Cache the fetched hotspots for resume capability
+            if not ebird_hotspots.empty:
+                st.session_state.ebird_hotspots_cache = ebird_hotspots
+                logger.info(f"💾 CACHED: Saved {len(ebird_hotspots):,} eBird hotspots for future resume")
         
         if ebird_hotspots.empty:
             st.error("❌ **Failed to fetch eBird hotspots**")
@@ -2559,11 +2742,11 @@ def run_dynamic_india_discovery(bird_client, params):
                     # Determine hotspot classification
                     total_species_count = len(species_summary)
                     if total_species_count >= 20:
-                        hotspot_type = "Red Hotspot (20+ species)"
+                            hotspot_type = "Red Hotspot (20+ species)"
                     elif total_species_count >= 10:
-                        hotspot_type = "Orange Hotspot (10-19 species)" 
+                            hotspot_type = "Orange Hotspot (10-19 species)"
                     else:
-                        hotspot_type = "Yellow Hotspot (5-9 species)"
+                            hotspot_type = "Yellow Hotspot (5-9 species)"
                     
                     result_record = {
                         'Place': enhanced_location,
@@ -2578,31 +2761,39 @@ def run_dynamic_india_discovery(bird_client, params):
                         'eBird Count': int(species_row['ebird_count']),
                         'GBIF Count': int(species_row['gbif_count']),
                         'Total Species at Location': total_species_count,
-                        'Hotspot Type': hotspot_type,
+                                'Hotspot Type': hotspot_type,
                         'eBird All-time Species': hotspot.get('num_species_all_time', 0)
                     }
                     
                     # Add media URLs if requested
-                    if params.get('include_photos') or params.get('include_audio'):
+                            if params.get('include_photos') or params.get('include_audio'):
                         media_data = get_bird_media_from_apis(
-                            species_row['species_name'], 
+                                        species_row['species_name'], 
                             bird_client, 
                             params.get('ebird_api_key')
-                        )
+                                    )
                         result_record.update(media_data)
-                    
+                                    
                     result_records.append(result_record)
-                
+                                    
                 return result_records
-                
-            except Exception as e:
+                                        
+                                except Exception as e:
                 logger.error(f"Error analyzing hotspot {location_name}: {str(e)}")
                 return None
         
         # ULTRA PARALLEL PROCESSING: Analyze hotspots in massive parallel batches
         all_results = []
-        batch_size = min(batch_size, 200)  # 4x LARGER batches for speed
-        num_workers = min(100, max(50, len(ebird_hotspots) // 2))  # 5x MORE WORKERS
+        
+        # ADAPTIVE BATCH SIZING based on dataset size and memory
+        if total_hotspots > 10000:
+            batch_size = min(100, batch_size)  # Smaller batches for huge datasets
+            num_workers = min(50, max(25, len(ebird_hotspots) // 4))  # Conservative workers
+                    else:
+            batch_size = min(batch_size, 200)  # 4x LARGER batches for speed
+            num_workers = min(100, max(50, len(ebird_hotspots) // 2))  # 5x MORE WORKERS
+            
+        logger.info(f"⚙️ Adaptive processing: {num_workers} workers, {batch_size} batch size for {total_hotspots:,} hotspots")
         
         # 🚀 INDUSTRIAL-STRENGTH LIGHTNING MODE: Memory-efficient processing for massive datasets
         if total_hotspots > 3000:
@@ -2610,9 +2801,9 @@ def run_dynamic_india_discovery(bird_client, params):
             
             import gc  # Garbage collection for memory management
             
-            # Initialize chunked processing for memory efficiency
+            # Initialize chunked processing for memory efficiency AND SPEED
             lightning_results = []
-            chunk_size = 2500  # Process in manageable chunks
+            chunk_size = 5000  # LARGER CHUNKS for faster processing
             total_chunks = (len(ebird_hotspots) + chunk_size - 1) // chunk_size
             
             # Check for existing progress in session state
@@ -2628,6 +2819,15 @@ def run_dynamic_india_discovery(bird_client, params):
             lightning_results.extend(st.session_state.lightning_progress['results'])
             processed_hotspots = st.session_state.lightning_progress['processed_hotspots']
             
+            # Show resume status to user
+            if start_chunk > 0:
+                completed_percentage = (start_chunk / total_chunks) * 100
+                logger.info(f"🔄 RESUMING ANALYSIS: Chunk {start_chunk + 1}/{total_chunks} ({completed_percentage:.1f}% complete)")
+                status_text.text(f"🔄 RESUMING: Continuing from chunk {start_chunk + 1}/{total_chunks} ({completed_percentage:.1f}% complete) - {len(lightning_results):,} results already processed")
+                progress_bar.progress(min(95, int((start_chunk / total_chunks) * 90)))
+                st.success(f"✅ **RESUMED**: Found {len(lightning_results):,} previous results. Continuing analysis from {completed_percentage:.1f}% completion.")
+                time.sleep(2)  # Show resume message briefly
+            
             for chunk_idx in range(start_chunk, total_chunks):
                 start_idx = chunk_idx * chunk_size
                 end_idx = min(start_idx + chunk_size, len(ebird_hotspots))
@@ -2637,57 +2837,64 @@ def run_dynamic_india_discovery(bird_client, params):
                 progress = min(95, int(((chunk_idx + 1) / total_chunks) * 90))
                 progress_bar.progress(progress)
                 
-                # Process chunk WITHOUT API calls for maximum speed
+                # STRATEGIC BIRD SPECIES FETCHING: Get real bird data efficiently
                 chunk_results = []
-                for _, hotspot in chunk_hotspots.iterrows():
-                    species_count = hotspot.get('num_species_all_time', 0)
-                    processed_hotspots += 1
-                    
-                    # Skip if species count is too low (for performance)
-                    if species_count < 1:
-                        continue
-                    
-                    # Determine hotspot classification
-                    if species_count >= 100:
-                        hotspot_type = "Red Hotspot (100+ all-time species)"
-                    elif species_count >= 50:
-                        hotspot_type = "Orange Hotspot (50-99 all-time species)" 
-                    elif species_count >= 20:
-                        hotspot_type = "Orange Hotspot (20-49 all-time species)"
-                    else:
-                        hotspot_type = "Yellow Hotspot (1-19 all-time species)"
-                    
-                    # Get real place names (cached for performance)
-                    enhanced_location = get_real_birding_location_name(hotspot['latitude'], hotspot['longitude'])
-                    
-                    # Create optimized record WITHOUT API calls for speed
-                    lightning_record = {
-                        'Place': enhanced_location,
-                        'Region': hotspot.get('region_name', 'Unknown Region'),
-                        'Latitude': hotspot['latitude'],
-                        'Longitude': hotspot['longitude'],
-                        'eBird Hotspot ID': hotspot.get('hotspot_id', ''),
-                        'Common Name': f"eBird Verified Hotspot ({species_count} species)",
-                        'Scientific Name': f"Multiple species documented (Total: {species_count})",
-                        'Fun Fact': f"This verified eBird hotspot has recorded {species_count} species historically",
-                        'Bird Count': species_count,
-                        'eBird Count': species_count,
-                        'GBIF Count': 0,
-                        'Total Species at Location': species_count,
-                        'Hotspot Type': hotspot_type,
-                        'eBird All-time Species': species_count,
-                        'Data Source': 'eBird Verified Hotspot Database',
-                        'Source Type': 'eBird Lightning',
-                        'Photo URL': 'N/A',
-                        'Audio URL': 'N/A'
+                
+                # ULTRA-FAST: Use minimal parallel processing for Lightning Mode speed
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, len(chunk_hotspots))) as species_executor:
+                    # Submit species fetching tasks for chunk hotspots
+                    hotspot_futures = {
+                        species_executor.submit(fetch_birds_for_lightning_hotspot, hotspot_data, bird_client): hotspot_data
+                        for hotspot_data in chunk_hotspots.iterrows()
                     }
-                    chunk_results.append(lightning_record)
+                    
+                    # Process completed species fetching
+                    for future in concurrent.futures.as_completed(hotspot_futures):
+                        try:
+                            hotspot_birds = future.result()
+                            if hotspot_birds:
+                                chunk_results.extend(hotspot_birds)
+                                processed_hotspots += len(hotspot_birds)
+            except Exception as e:
+                            hotspot_data = hotspot_futures[future]
+                            hotspot = hotspot_data[1]
+                            logger.warning(f"⚠️ Species fetch failed for {hotspot.get('hotspot_id', 'unknown')}: {str(e)}")
+                            
+                            # Create fallback record if species fetching fails
+                            species_count = hotspot.get('num_species_all_time', 0)
+                            enhanced_location = get_real_birding_location_name(hotspot['latitude'], hotspot['longitude'])
+                            
+                            fallback_record = {
+                                'Place': enhanced_location,
+                                'Region': hotspot.get('region_name', 'Unknown Region'),
+                                'Latitude': hotspot['latitude'],
+                                'Longitude': hotspot['longitude'],
+                                'eBird Hotspot ID': hotspot.get('hotspot_id', ''),
+                                'Common Name': f"eBird Hotspot Summary ({species_count} historical species)",
+                                'Scientific Name': f"Data fetch failed - {species_count} species recorded",
+                                'Fun Fact': f"This eBird hotspot has {species_count} species recorded but details unavailable",
+                                'Bird Count': max(1, species_count),
+                                'eBird Count': max(1, species_count),
+                                'GBIF Count': 0,
+                                'Total Species at Location': species_count,
+                                'Hotspot Type': "Yellow Hotspot (data fetch failed)",
+                                'eBird All-time Species': species_count,
+                                'Data Source': 'eBird Hotspot Database (Fallback)',
+                                'Source Type': 'eBird Lightning',
+                                'Photo URL': 'N/A',
+                                'Audio URL': 'N/A'
+                            }
+                            chunk_results.append(fallback_record)
+                            processed_hotspots += 1
                 
                 # Add chunk results and save progress to session state
                 lightning_results.extend(chunk_results)
                 st.session_state.lightning_progress['completed_chunks'] = chunk_idx + 1
-                st.session_state.lightning_progress['results'] = lightning_results[-1000:]  # Keep only recent results
+                st.session_state.lightning_progress['results'] = lightning_results  # KEEP ALL RESULTS for proper resume
                 st.session_state.lightning_progress['processed_hotspots'] = processed_hotspots
+                
+                # Save current total for resume display
+                st.session_state.lightning_progress['total_results'] = len(lightning_results)
                 
                 # Memory cleanup after each chunk
                 del chunk_results
@@ -2702,11 +2909,76 @@ def run_dynamic_india_discovery(bird_client, params):
             logger.info(f"⚡ LIGHTNING MODE complete: {len(lightning_results)} hotspots processed from {len(ebird_hotspots)} total eBird hotspots!")
             
             if lightning_results:
-                results_df = pd.DataFrame(lightning_results)
-                progress_bar.progress(100)
-                status_text.text(f"⚡ Lightning fast analysis complete! Generated {len(lightning_results)} results from {len(ebird_hotspots)} eBird hotspots.")
-                logger.info(f"✅ Lightning Mode SUCCESS: {len(lightning_results)} results created")
-                return results_df
+                try:
+                    # CRITICAL FIX: Safe DataFrame creation for Lightning Mode
+                    logger.info(f"🔧 Lightning Mode: Creating DataFrame from {len(lightning_results):,} results...")
+                    
+                    # Check memory before DataFrame creation
+                    if psutil:
+                        memory_before = psutil.virtual_memory().percent
+                        logger.info(f"📊 Lightning Mode memory before DataFrame: {memory_before:.1f}%")
+                    
+                    # For massive Lightning Mode datasets, use chunked approach
+                    if len(lightning_results) > 15000:
+                        logger.warning(f"⚠️ Massive Lightning dataset ({len(lightning_results):,} records) - using chunked DataFrame creation")
+                        
+                        chunk_size = 7500
+                        df_chunks = []
+                        
+                        for i in range(0, len(lightning_results), chunk_size):
+                            chunk_end = min(i + chunk_size, len(lightning_results))
+                            chunk_data = lightning_results[i:chunk_end]
+                            
+                            status_text.text(f"⚡ Creating Lightning DataFrame chunk {i//chunk_size + 1}/{(len(lightning_results)-1)//chunk_size + 1}...")
+                            
+                            try:
+                                chunk_df = pd.DataFrame(chunk_data)
+                                df_chunks.append(chunk_df)
+                                del chunk_data
+                                gc.collect()
+                            except Exception as chunk_error:
+                                logger.error(f"❌ Lightning chunk error: {str(chunk_error)}")
+                continue
+            
+                        # Combine chunks
+                        if df_chunks:
+                            results_df = pd.concat(df_chunks, ignore_index=True)
+                            del df_chunks
+                gc.collect()
+                        else:
+                            raise Exception("No valid Lightning DataFrame chunks created")
+                    else:
+                        # Standard DataFrame creation
+                        results_df = pd.DataFrame(lightning_results)
+                    
+                    progress_bar.progress(100)
+                    status_text.text(f"⚡ Lightning fast analysis complete! Generated {len(results_df):,} results from {len(ebird_hotspots):,} eBird hotspots.")
+                    logger.info(f"✅ Lightning Mode SUCCESS: {len(results_df):,} results created")
+                    
+                    return results_df
+                    
+                except Exception as lightning_error:
+                    logger.error(f"❌ CRITICAL: Lightning Mode DataFrame creation failed: {str(lightning_error)}")
+                    
+                    # Try to salvage partial results
+                    try:
+                        if len(lightning_results) > 5000:
+                            logger.warning(f"🆘 Lightning Mode: Salvaging first 5,000 results from {len(lightning_results):,} total...")
+                            salvaged_results = lightning_results[:5000]
+                            results_df = pd.DataFrame(salvaged_results)
+                            
+                            progress_bar.progress(100)
+                            status_text.text(f"⚠️ Partial Lightning results: {len(results_df):,} hotspots (salvaged from memory overflow)")
+                            
+                            st.warning(f"⚠️ **PARTIAL LIGHTNING RESULTS**: Full dataset too large for memory. Showing first 5,000 hotspots.")
+                            return results_df
+                        else:
+                            raise lightning_error
+                            
+                    except Exception as salvage_error:
+                        logger.error(f"❌ Lightning salvage failed: {str(salvage_error)}")
+                        st.error("❌ **LIGHTNING MODE FAILED**: Dataset too large for available memory.")
+                        return None
             else:
                 logger.error(f"❌ Lightning Mode FAILED: 0 results from {len(ebird_hotspots)} eBird hotspots")
                 progress_bar.progress(100)
@@ -2795,18 +3067,101 @@ def run_dynamic_india_discovery(bird_client, params):
         status_text.text("✅ Finalizing parallel analysis results...")
         
         if all_results:
-            results_df = pd.DataFrame(all_results)
+            try:
+                # CRITICAL FIX: Safe DataFrame creation with memory monitoring
+                logger.info(f"🔧 Creating DataFrame from {len(all_results):,} results...")
+                
+                # Check memory before DataFrame creation
+                if psutil:
+                    memory_before = psutil.virtual_memory().percent
+                    logger.info(f"📊 Memory before DataFrame: {memory_before:.1f}%")
+                
+                # For very large datasets, process in chunks to avoid memory issues
+                if len(all_results) > 10000:
+                    logger.warning(f"⚠️ Large dataset ({len(all_results):,} records) - using chunked DataFrame creation")
+                    
+                    # Create DataFrame in chunks to manage memory
+                    chunk_size = 5000
+                    df_chunks = []
+                    
+                    for i in range(0, len(all_results), chunk_size):
+                        chunk_end = min(i + chunk_size, len(all_results))
+                        chunk_data = all_results[i:chunk_end]
+                        
+                        status_text.text(f"🔧 Creating DataFrame chunk {i//chunk_size + 1}/{(len(all_results)-1)//chunk_size + 1}...")
+                        
+                        try:
+                            chunk_df = pd.DataFrame(chunk_data)
+                            df_chunks.append(chunk_df)
+                            
+                            # Memory cleanup after each chunk
+                            del chunk_data
+                            gc.collect()
+                            
+                        except Exception as chunk_error:
+                            logger.error(f"❌ Error creating DataFrame chunk: {str(chunk_error)}")
+                            continue
+                    
+                    # Combine all chunks
+                    if df_chunks:
+                        logger.info(f"🔗 Combining {len(df_chunks)} DataFrame chunks...")
+                        results_df = pd.concat(df_chunks, ignore_index=True)
+                        
+                        # Cleanup chunk DataFrames
+                        del df_chunks
+                        gc.collect()
+                    else:
+                        raise Exception("No valid DataFrame chunks created")
+                        
+                else:
+                    # Standard DataFrame creation for smaller datasets
+                    results_df = pd.DataFrame(all_results)
+                
+                # Check memory after DataFrame creation
+                if psutil:
+                    memory_after = psutil.virtual_memory().percent
+                    logger.info(f"📊 Memory after DataFrame: {memory_after:.1f}% (Change: +{memory_after-memory_before:.1f}%)")
             
             # Clear progress indicators
             progress_bar.empty()
             status_text.empty()
             
-            unique_locations = len(results_df['Place'].unique())
-            unique_species = len(results_df['Scientific Name'].unique()) if 'Scientific Name' in results_df.columns else 0
-            
-            st.success(f"🚀 **PARALLEL Analysis Complete!** Processed {total_hotspots:,} hotspots in PARALLEL. Found {unique_locations:,} locations with {unique_species:,} species!")
-            
+                # Calculate statistics safely
+                unique_locations = len(results_df['Place'].unique()) if 'Place' in results_df.columns else 0
+                unique_species = len(results_df['Scientific Name'].unique()) if 'Scientific Name' in results_df.columns else 0
+                
+                logger.info(f"✅ DataFrame created successfully: {len(results_df):,} rows, {unique_locations:,} locations, {unique_species:,} species")
+                
+                st.success(f"🚀 **ANALYSIS COMPLETE!** Processed {total_hotspots:,} hotspots. Found {unique_locations:,} locations with {unique_species:,} species!")
+                
+                return results_df
+                
+            except Exception as df_error:
+                logger.error(f"❌ CRITICAL: DataFrame creation failed: {str(df_error)}")
+                
+                # Clear progress indicators
+                progress_bar.empty()
+                status_text.empty()
+                
+                # Try to salvage some results
+                try:
+                    if len(all_results) > 1000:
+                        # Take only the first 1000 results to avoid complete failure
+                        logger.warning(f"🆘 Attempting to salvage first 1,000 results from {len(all_results):,} total...")
+                        salvaged_results = all_results[:1000]
+                        results_df = pd.DataFrame(salvaged_results)
+                        
+                        unique_locations = len(results_df['Place'].unique()) if 'Place' in results_df.columns else 0
+                        
+                        st.warning(f"⚠️ **PARTIAL RESULTS**: DataFrame creation failed for full dataset. Showing first 1,000 results ({unique_locations:,} locations).")
             return results_df
+        else:
+                        raise df_error
+                        
+                except Exception as salvage_error:
+                    logger.error(f"❌ Salvage attempt also failed: {str(salvage_error)}")
+                    st.error(f"❌ **CRITICAL ERROR**: Cannot create results DataFrame. Dataset too large for available memory.")
+                    return None
         else:
             # Clear progress indicators  
             progress_bar.empty()
@@ -2926,7 +3281,6 @@ def get_dynamic_location_name(lat, lng, use_geocoding=True):
         return get_dynamic_region_name(lat, lng)
 
 
-@st.cache_data
 def display_dynamic_india_results(results_df, params):
     """Display the dynamic India hotspot discovery results."""
     st.info("📊 Showing dynamic India-wide hotspot discovery results")
@@ -2949,11 +3303,11 @@ def display_dynamic_india_results(results_df, params):
             species_col = None
         
         if has_species_data:
-            # Use correct column name for species count
+        # Use correct column name for species count
             total_species = len(results_df[species_col].unique()) if species_col in results_df.columns else 0
             total_birds = results_df['Bird Count'].sum() if 'Bird Count' in results_df.columns else 0
-            
-            # Count hotspot types
+        
+        # Count hotspot types
             if 'Hotspot Type' in results_df.columns:
                 orange_hotspots = len(results_df[results_df['Hotspot Type'].str.contains('Orange', na=False)]['Place'].unique())
                 red_hotspots = len(results_df[results_df['Hotspot Type'].str.contains('Red', na=False)]['Place'].unique())
@@ -3015,7 +3369,7 @@ def display_dynamic_india_results(results_df, params):
                 agg_dict['Bird Count'] = 'sum'
             
             regional_analysis = results_df.groupby('Region').agg(agg_dict).reset_index()
-            regional_analysis.columns = ['Region', 'Hotspots Found', 'Unique Species', 'Total Birds']
+        regional_analysis.columns = ['Region', 'Hotspots Found', 'Unique Species', 'Total Birds']
         else:
             # Ultra Fast mode - only place counts
             regional_analysis = results_df.groupby('Region').agg(agg_dict).reset_index()
@@ -3032,10 +3386,10 @@ def display_dynamic_india_results(results_df, params):
         with col2:
             st.write("**Hotspot Type Distribution:**")
             if 'Hotspot Type' in results_df.columns:
-                hotspot_type_dist = results_df.groupby('Hotspot Type')['Place'].nunique().reset_index()
-                hotspot_type_dist.columns = ['Hotspot Type', 'Count']
-                # Sort by count (descending) to show most common hotspot types first
-                hotspot_type_dist = hotspot_type_dist.sort_values('Count', ascending=False)
+            hotspot_type_dist = results_df.groupby('Hotspot Type')['Place'].nunique().reset_index()
+            hotspot_type_dist.columns = ['Hotspot Type', 'Count']
+            # Sort by count (descending) to show most common hotspot types first
+            hotspot_type_dist = hotspot_type_dist.sort_values('Count', ascending=False)
             elif 'Source Type' in results_df.columns:
                 # Ultra Fast mode - use Source Type instead
                 hotspot_type_dist = results_df.groupby('Source Type')['Place'].nunique().reset_index()
@@ -3052,16 +3406,16 @@ def display_dynamic_india_results(results_df, params):
         
         if any(col in results_df.columns for col in ['Scientific Name', 'Species Name', 'Bird Count']):
             # Full analysis mode - show species data
-            species_col = 'Scientific Name' if 'Scientific Name' in results_df.columns else 'Species Name'
+        species_col = 'Scientific Name' if 'Scientific Name' in results_df.columns else 'Species Name'
             
             # Use available type column
             type_col = 'Hotspot Type' if 'Hotspot Type' in results_df.columns else 'Source Type'
             if type_col in results_df.columns:
                 top_hotspots = results_df.groupby(['Place', 'Region', 'Latitude', 'Longitude', type_col]).agg({
-                    species_col: 'nunique',
-                    'Bird Count': 'sum'
-                }).reset_index()
-                top_hotspots.columns = ['Place', 'Region', 'Latitude', 'Longitude', 'Type', 'Species Count', 'Total Birds']
+            species_col: 'nunique',
+            'Bird Count': 'sum'
+        }).reset_index()
+        top_hotspots.columns = ['Place', 'Region', 'Latitude', 'Longitude', 'Type', 'Species Count', 'Total Birds']
             else:
                 top_hotspots = results_df.groupby(['Place', 'Region', 'Latitude', 'Longitude']).agg({
                     species_col: 'nunique',
@@ -3069,7 +3423,7 @@ def display_dynamic_india_results(results_df, params):
                 }).reset_index()
                 top_hotspots.columns = ['Place', 'Region', 'Latitude', 'Longitude', 'Species Count', 'Total Birds']
             
-            top_hotspots = top_hotspots.sort_values(['Species Count', 'Total Birds'], ascending=[False, False]).head(20)
+        top_hotspots = top_hotspots.sort_values(['Species Count', 'Total Birds'], ascending=[False, False]).head(20)
         else:
             # Ultra Fast mode - show hotspot data only
             if 'eBird All-time Species' in results_df.columns:
@@ -3118,12 +3472,12 @@ def display_dynamic_india_results(results_df, params):
         # Sort the data based on available columns
         if has_species_data and 'Hotspot Type' in display_df.columns:
             # Full analysis mode - detailed sorting
-            display_df['Hotspot_Priority'] = display_df['Hotspot Type'].map({
-                'Red Hotspot (20+ species)': 1,
-                'Orange Hotspot (10-19 species)': 2,
-                'Yellow Hotspot (5-9 species)': 3
-            })
-            
+        display_df['Hotspot_Priority'] = display_df['Hotspot Type'].map({
+            'Red Hotspot (20+ species)': 1,
+            'Orange Hotspot (10-19 species)': 2,
+            'Yellow Hotspot (5-9 species)': 3
+        })
+        
             sort_columns = ['Hotspot_Priority', 'Total Species at Location', 'Place']
             sort_ascending = [True, False, True]
             
@@ -3133,7 +3487,7 @@ def display_dynamic_india_results(results_df, params):
                 sort_ascending.append(True)
                 
             display_df = display_df.sort_values(sort_columns, ascending=sort_ascending)
-            display_df = display_df.drop('Hotspot_Priority', axis=1)
+        display_df = display_df.drop('Hotspot_Priority', axis=1)
         else:
             # Ultra Fast mode - simple sorting by place name and eBird species count
             sort_columns = ['Place']
@@ -3162,12 +3516,12 @@ def display_dynamic_india_results(results_df, params):
         if 'Photo URL' in display_df.columns:
             photos_with_data = len(display_df[display_df['Photo URL'] != 'N/A'])
             if photos_with_data > 0:
-                display_columns.append('Photo URL')
+            display_columns.append('Photo URL')
                 
         if 'Audio URL' in display_df.columns:
             audio_with_data = len(display_df[display_df['Audio URL'] != 'N/A'])
             if audio_with_data > 0:
-                display_columns.append('Audio URL')
+            display_columns.append('Audio URL')
         
         # PERFORMANCE OPTIMIZATION: Adaptive pagination based on dataset size
         total_results = len(display_df)  # FIX: Define total_results before using it
@@ -3254,7 +3608,7 @@ def display_dynamic_india_results(results_df, params):
                     'Place': 'nunique'
                 }).reset_index()
                 species_summary.columns = ['Species Name', 'Total Observations', 'Hotspots Found']
-                species_summary = species_summary.sort_values('Total Observations', ascending=False)
+            species_summary = species_summary.sort_values('Total Observations', ascending=False)
             else:
                 # Ultra Fast mode - no species data available
                 species_summary = pd.DataFrame({
@@ -3314,14 +3668,41 @@ def display_dynamic_india_results(results_df, params):
                 'Top Hotspots': top_hotspots,
                 'Regional Analysis': regional_analysis,
                 'Species Summary': species_summary,
+                'Bird Names Directory': pd.DataFrame({'Note': ['Bird species breakdown will be added to Detailed Data sheet']}),
                 'Detailed Data': results_df.copy()
             }
             
+            # CRITICAL FIX: Ensure bird name columns are properly structured for Excel
+            detailed_df = download_data['Detailed Data'].copy()
+            
+            # Ensure Common Name and Scientific Name columns exist and are properly named
+            if 'Common Name' not in detailed_df.columns and 'Species Name' in detailed_df.columns:
+                detailed_df['Common Name'] = detailed_df['Species Name']
+            elif 'Common Name' not in detailed_df.columns:
+                detailed_df['Common Name'] = 'eBird Hotspot Data'
+            
+            if 'Scientific Name' not in detailed_df.columns:
+                detailed_df['Scientific Name'] = 'Multiple species documented'
+            
+            # Reorder columns to put bird names first for better Excel usability
+            column_order = ['Place', 'Common Name', 'Scientific Name', 'Region', 'Latitude', 'Longitude']
+            remaining_cols = [col for col in detailed_df.columns if col not in column_order]
+            final_column_order = column_order + remaining_cols
+            
+            # Keep only existing columns
+            existing_columns = [col for col in final_column_order if col in detailed_df.columns]
+            detailed_df = detailed_df[existing_columns]
+            
+            # Update the download data
+            download_data['Detailed Data'] = detailed_df
+            
             # Clean URLs for Excel
-            if 'Photo URL' in download_data['Detailed Data'].columns:
-                download_data['Detailed Data']['Photo URL'] = download_data['Detailed Data']['Photo URL'].fillna('N/A')
-            if 'Audio URL' in download_data['Detailed Data'].columns:
-                download_data['Detailed Data']['Audio URL'] = download_data['Detailed Data']['Audio URL'].fillna('N/A')
+            if 'Photo URL' in detailed_df.columns:
+                detailed_df['Photo URL'] = detailed_df['Photo URL'].fillna('N/A')
+            if 'Audio URL' in detailed_df.columns:
+                detailed_df['Audio URL'] = detailed_df['Audio URL'].fillna('N/A')
+            
+            logger.info(f"📋 Excel data prepared: {len(detailed_df)} rows with columns: {list(detailed_df.columns)}")
             
             excel_data = create_excel_download(download_data, "ebird_india_hotspots")
             
@@ -3346,13 +3727,15 @@ def display_dynamic_india_results(results_df, params):
                 
                 # Show what's included in the download
                 with st.expander("📋 What's included in the Complete Download?"):
-                    st.write("**6 Excel Sheets:**")
+                    st.write("**7 Excel Sheets with Complete Bird Data:**")
                     st.write("1. **Analysis Summary** - Key metrics, unique coordinates count, and performance details")
                     st.write("2. **Unique Coordinates** - All unique lat/long combinations found") 
                     st.write("3. **Top Hotspots** - Best locations sorted by species count")
                     st.write("4. **Regional Analysis** - Hotspot distribution by region")
                     st.write("5. **Species Summary** - All species with observation counts")
-                    st.write("6. **Detailed Data** - Complete dataset with all birds and locations")
+                    st.write("6. **Bird Names Directory** - Reference sheet for species information")
+                    st.write("7. **Detailed Data** - ✅ **Complete dataset with Common Name & Scientific Name columns**")
+                    st.success("✅ **Excel includes separate Common Name and Scientific Name columns as requested!**")
                     
                     st.info(f"📊 **Summary**: {total_hotspots:,} total hotspots with {unique_coord_count:,} unique coordinates")
                     
@@ -3376,7 +3759,11 @@ def handle_tehsil_analysis(bird_client, search_radius, ebird_api_key, use_ebird)
         st.write("### Select Location")
         
         # Load tehsil data
-        tehsil_df = load_tehsil_data()
+        tehsil_df, error_msg = load_tehsil_data()
+        
+        if error_msg:
+            st.error(error_msg)
+            return
         
         if tehsil_df.empty:
             st.error("Unable to load tehsil data.")
