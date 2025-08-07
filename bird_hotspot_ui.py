@@ -19,6 +19,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import south_asian_bird_hotspot
 import io
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import csv
 import base64
 import threading
@@ -478,6 +480,266 @@ def generate_likely_species_for_location(hotspot, location_name, hotspot_type, s
             continue
     
     return bird_records
+
+
+# Database Configuration
+DB_CONFIG = {
+    'host': 'ataavi-pre-prod.ct8y4ms8gbgk.ap-south-1.rds.amazonaws.com',
+    'port': 5432,
+    'database': 'ataavi_dev',
+    'user': 'ataavi_admin',
+    'password': 'Ataavi1234'
+}
+
+def get_database_connection():
+    """
+    Create and return a PostgreSQL database connection.
+    """
+    try:
+        conn = psycopg2.connect(
+            host=DB_CONFIG['host'],
+            port=DB_CONFIG['port'],
+            database=DB_CONFIG['database'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password']
+        )
+        return conn
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {str(e)}")
+        return None
+
+def save_bird_hotspots_to_database(bird_data_df, progress_callback=None):
+    """
+    Save bird hotspot data to PostgreSQL database.
+    
+    Parameters:
+    -----------
+    bird_data_df : pandas.DataFrame
+        DataFrame containing bird hotspot data
+    progress_callback : function, optional
+        Callback function to update progress
+    
+    Returns:
+    --------
+    dict
+        Results of the database save operation
+    """
+    try:
+        conn = get_database_connection()
+        if not conn:
+            return {'success': False, 'error': 'Failed to connect to database'}
+        
+        cursor = conn.cursor()
+        
+        # SQL query to insert data with conflict resolution
+        insert_query = """
+        INSERT INTO public.bird_hotspot_details (
+            place, region, latitude, longitude, scientific_name, 
+            common_name, fun_fact, total_birds_at_location, 
+            hotspot_type, bird_id, isactive
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        ) ON CONFLICT (bird_id) DO UPDATE SET
+            place = EXCLUDED.place,
+            region = EXCLUDED.region,
+            latitude = EXCLUDED.latitude,
+            longitude = EXCLUDED.longitude,
+            scientific_name = EXCLUDED.scientific_name,
+            common_name = EXCLUDED.common_name,
+            fun_fact = EXCLUDED.fun_fact,
+            total_birds_at_location = EXCLUDED.total_birds_at_location,
+            hotspot_type = EXCLUDED.hotspot_type,
+            isactive = EXCLUDED.isactive,
+            updated_at = CURRENT_TIMESTAMP
+        """
+        
+        successful_inserts = 0
+        failed_inserts = 0
+        total_records = len(bird_data_df)
+        
+        logger.info(f"💾 Starting database save for {total_records:,} records...")
+        
+        # Process records in batches for better performance
+        batch_size = 1000
+        for batch_start in range(0, total_records, batch_size):
+            batch_end = min(batch_start + batch_size, total_records)
+            batch_df = bird_data_df.iloc[batch_start:batch_end]
+            
+            batch_data = []
+            for _, row in batch_df.iterrows():
+                try:
+                    # Generate unique bird_id based on location and species
+                    bird_id = f"{row.get('Latitude', 0):.4f}_{row.get('Longitude', 0):.4f}_{row.get('Common Name', 'unknown').replace(' ', '_')}"
+                    
+                    record = (
+                        row.get('Place', 'Unknown'),
+                        row.get('Region', 'Unknown'),
+                        float(row.get('Latitude', 0)),
+                        float(row.get('Longitude', 0)),
+                        row.get('Scientific Name', 'Unknown'),
+                        row.get('Common Name', 'Unknown'),
+                        row.get('Fun Fact', 'No information available'),
+                        int(row.get('Total Species at Location', 1)),
+                        row.get('Hotspot Type', 'Unknown'),
+                        bird_id,
+                        True  # isactive
+                    )
+                    batch_data.append(record)
+                    
+                except Exception as row_error:
+                    logger.warning(f"⚠️ Error preparing row for database: {str(row_error)}")
+                    failed_inserts += 1
+                    continue
+            
+            # Execute batch insert
+            try:
+                # ENHANCED DEBUG: Log sample data for first batch
+                if batch_start == 0 and batch_data:
+                    logger.info(f"🔍 DEBUGGING: Sample record data: {batch_data[0]}")
+                    logger.info(f"🔍 DEBUGGING: Record types: {[type(x) for x in batch_data[0]]}")
+                
+                cursor.executemany(insert_query, batch_data)
+                conn.commit()
+                successful_inserts += len(batch_data)
+                
+                # Update progress
+                if progress_callback:
+                    progress = (batch_end / total_records) * 100
+                    progress_callback(f"💾 Saved {successful_inserts:,}/{total_records:,} records to database ({progress:.1f}%)")
+                
+                logger.info(f"✅ Batch {batch_start//batch_size + 1} saved: {len(batch_data)} records")
+                
+            except Exception as batch_error:
+                logger.error(f"❌ DETAILED BATCH ERROR: {str(batch_error)}")
+                logger.error(f"❌ Error type: {type(batch_error).__name__}")
+                if hasattr(batch_error, 'pgcode'):
+                    logger.error(f"❌ PostgreSQL error code: {batch_error.pgcode}")
+                if hasattr(batch_error, 'pgerror'):
+                    logger.error(f"❌ PostgreSQL error message: {batch_error.pgerror}")
+                
+                # Try inserting records one by one for better error identification
+                logger.info(f"🔍 DEBUGGING: Attempting individual record inserts for batch {batch_start//batch_size + 1}")
+                individual_success = 0
+                for i, record in enumerate(batch_data[:5]):  # Test first 5 records only
+                    try:
+                        cursor.execute(insert_query, record)
+                        conn.commit()
+                        individual_success += 1
+                        logger.info(f"✅ Individual record {i+1} succeeded")
+                    except Exception as individual_error:
+                        logger.error(f"❌ Individual record {i+1} failed: {str(individual_error)}")
+                        logger.error(f"❌ Record data: {record}")
+                        conn.rollback()
+                
+                conn.rollback()
+                failed_inserts += len(batch_data)
+        
+        cursor.close()
+        conn.close()
+        
+        result = {
+            'success': True,
+            'total_records': total_records,
+            'successful_inserts': successful_inserts,
+            'failed_inserts': failed_inserts,
+            'message': f"Successfully saved {successful_inserts:,} records to database"
+        }
+        
+        logger.info(f"💾 Database save complete: {successful_inserts:,} successful, {failed_inserts:,} failed")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Database save operation failed: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'message': f"Database save failed: {str(e)}"
+        }
+
+def test_database_connection():
+    """
+    Test the database connection and return connection status.
+    """
+    try:
+        conn = get_database_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.close()
+            conn.close()
+            return {'success': True, 'message': 'Database connection successful'}
+        else:
+            return {'success': False, 'message': 'Failed to establish database connection'}
+    except Exception as e:
+        return {'success': False, 'message': f'Database connection error: {str(e)}'}
+
+def verify_database_schema():
+    """
+    Verify the database table structure and return detailed information.
+    """
+    try:
+        conn = get_database_connection()
+        if not conn:
+            return {'success': False, 'error': 'Failed to connect to database'}
+        
+        cursor = conn.cursor()
+        
+        # Check if table exists
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'bird_hotspot_details'
+            );
+        """)
+        table_exists = cursor.fetchone()[0]
+        
+        if not table_exists:
+            cursor.close()
+            conn.close()
+            return {
+                'success': False, 
+                'error': 'Table bird_hotspot_details does not exist',
+                'table_exists': False
+            }
+        
+        # Get table column information
+        cursor.execute("""
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public' 
+            AND table_name = 'bird_hotspot_details'
+            ORDER BY ordinal_position;
+        """)
+        columns = cursor.fetchall()
+        
+        # Get table constraints
+        cursor.execute("""
+            SELECT constraint_name, constraint_type
+            FROM information_schema.table_constraints
+            WHERE table_schema = 'public' 
+            AND table_name = 'bird_hotspot_details';
+        """)
+        constraints = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            'success': True,
+            'table_exists': True,
+            'columns': columns,
+            'constraints': constraints,
+            'message': f'Table verified with {len(columns)} columns and {len(constraints)} constraints'
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Database schema verification failed: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'message': f'Schema verification failed: {str(e)}'
+        }
 
 
 def get_real_birding_location_name(lat, lng):
@@ -2321,6 +2583,37 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
         cached_hotspots = len(st.session_state.ebird_hotspots_cache)
         st.info(f"🔄 **HOTSPOTS CACHED**: {cached_hotspots:,} eBird hotspots from previous session. Analysis will skip fetch phase and start immediately.")
     
+    # Database status check
+    with st.expander("💾 Database Configuration & Status"):
+        st.write("**PostgreSQL Database:** ataavi-pre-prod.ct8y4ms8gbgk.ap-south-1.rds.amazonaws.com")
+        st.write("**Database:** ataavi_dev")
+        st.write("**Table:** public.bird_hotspot_details")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col2:
+            if st.button("🔍 Test Connection"):
+                with st.spinner("Testing database connection..."):
+                    db_test = test_database_connection()
+                    if db_test['success']:
+                        st.success("✅ Database connection successful!")
+                    else:
+                        st.error(f"❌ {db_test['message']}")
+        
+        with col3:
+            if st.button("🔧 Verify Schema"):
+                with st.spinner("Verifying database schema..."):
+                    schema_result = verify_database_schema()
+                    if schema_result['success']:
+                        st.success("✅ Database schema verified!")
+                        st.write("**Columns found:**")
+                        for col in schema_result['columns']:
+                            st.write(f"• {col[0]} ({col[1]})")
+                        st.write(f"**Constraints:** {len(schema_result['constraints'])}")
+                    else:
+                        st.error(f"❌ Schema error: {schema_result['error']}")
+        
+        st.info("💡 **Auto-save**: Bird hotspot data can be saved to database after analysis completes.")
+    
     # Simplified configuration
     col1, col2 = st.columns(2)
     
@@ -3475,19 +3768,48 @@ def display_dynamic_india_results(results_df, params):
         # Detailed data with pagination
         st.write("#### 📋 Detailed Dynamic Hotspot Data")
         
-        # Add immediate download button for detailed data table
+        # Add download and database save buttons
         try:
             detailed_excel_data = create_excel_download({'Detailed Hotspot Data': results_df}, "detailed_dynamic_hotspots")
             if detailed_excel_data:
-                col1, col2 = st.columns([3, 1])
+                col1, col2, col3 = st.columns([2, 1, 1])
+                
                 with col2:
                     st.download_button(
-                        label="📥 Download Table Data",
+                        label="📥 Download Excel",
                         data=detailed_excel_data,
                         file_name=f"detailed_dynamic_hotspots_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         help="Download only the detailed hotspot data shown in the table below"
                     )
+                
+                with col3:
+                    if st.button("💾 Save to Database", help="Save bird hotspot data to PostgreSQL database"):
+                        # Test database connection first
+                        db_test = test_database_connection()
+                        if db_test['success']:
+                            # Show progress during database save
+                            db_progress_placeholder = st.empty()
+                            db_status_placeholder = st.empty()
+                            
+                            def update_db_progress(message):
+                                db_status_placeholder.info(message)
+                            
+                            try:
+                                # Save to database
+                                db_result = save_bird_hotspots_to_database(results_df, update_db_progress)
+                                
+                                if db_result['success']:
+                                    db_status_placeholder.success(f"✅ {db_result['message']}")
+                                    st.balloons()
+                                else:
+                                    db_status_placeholder.error(f"❌ Database save failed: {db_result.get('error', 'Unknown error')}")
+                                    
+                            except Exception as db_error:
+                                db_status_placeholder.error(f"❌ Database save error: {str(db_error)}")
+                        else:
+                            st.error(f"❌ Database connection failed: {db_test['message']}")
+                            
         except Exception as e:
             st.warning(f"Quick download unavailable: {str(e)}")
         
