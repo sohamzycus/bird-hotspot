@@ -362,8 +362,13 @@ def fetch_birds_for_lightning_hotspot(hotspot_data, bird_client):
         if species_count < 5:
             return []
         
-        # Get real place name
-        enhanced_location = get_real_birding_location_name(hotspot['latitude'], hotspot['longitude'])
+        # FIXED: Use actual eBird hotspot name instead of generic location
+        enhanced_location = hotspot.get('location_name', 'Unknown Hotspot')
+        
+        # Only use fallback location naming if eBird name is generic or missing
+        if (not enhanced_location or enhanced_location == 'Unknown Hotspot' or 
+            len(enhanced_location.strip()) < 3):
+            enhanced_location = get_real_birding_location_name(hotspot['latitude'], hotspot['longitude'])
         
         # Determine hotspot classification
         if species_count >= 100:
@@ -393,55 +398,96 @@ def generate_likely_species_for_location(hotspot, location_name, hotspot_type, s
     """
     bird_records = []
     
-    # Determine region and habitat type from coordinates
+    # FIXED: Smart habitat-based species filtering
     lat, lng = hotspot['latitude'], hotspot['longitude']
     
-    # Define regional bird lists based on geography
+    # Analyze location context for habitat determination
+    location_lower = location_name.lower()
+    is_urban = any(term in location_lower for term in ['city', 'urban', 'airport', 'metro', 'station', 'mall', 'building'])
+    is_wetland = any(term in location_lower for term in ['lake', 'river', 'wetland', 'pond', 'dam', 'reservoir', 'creek'])
+    is_forest = any(term in location_lower for term in ['forest', 'national park', 'wildlife sanctuary', 'reserve', 'jungle'])
+    is_garden = any(term in location_lower for term in ['garden', 'park', 'botanical', 'lalbagh', 'cubbon'])
+    is_coastal = any(term in location_lower for term in ['beach', 'coast', 'bay', 'sea', 'island'])
+    
+    # Base urban/common birds for all regions
+    common_urban_birds = [
+        'House Sparrow', 'Common Myna', 'Red-vented Bulbul', 'Black Kite', 
+        'Rock Pigeon', 'Rose-ringed Parakeet', 'Spotted Dove', 'Asian Koel',
+        'House Crow', 'Large-billed Crow', 'Common Tailorbird'
+    ]
+    
+    # Regional base lists (more conservative)
     if lat > 28:  # Northern India
-        regional_birds = [
-            'House Sparrow', 'Common Myna', 'Red-vented Bulbul', 'Black Kite', 
-            'Rock Pigeon', 'Rose-ringed Parakeet', 'Spotted Dove', 'Little Egret',
-            'Cattle Egret', 'Indian Pond Heron', 'White-throated Kingfisher', 'Common Kingfisher',
-            'Asian Koel', 'Rufous Treepie', 'House Crow', 'Large-billed Crow'
+        regional_birds = common_urban_birds + [
+            'Rufous Treepie', 'Red-whiskered Bulbul', 'White-throated Kingfisher',
+            'Indian Roller', 'Coppersmith Barbet', 'Purple Sunbird'
         ]
     elif lat > 20:  # Central India  
-        regional_birds = [
-            'Red-vented Bulbul', 'Common Myna', 'Jungle Babbler', 'White-cheeked Barbet',
-            'Coppersmith Barbet', 'Asian Paradise Flycatcher', 'Oriental Magpie Robin',
-            'Red-whiskered Bulbul', 'Purple Sunbird', 'Pale-billed Flowerpecker',
-            'Common Tailorbird', 'Ashy Prinia', 'Plain Prinia', 'Baya Weaver'
+        regional_birds = common_urban_birds + [
+            'Jungle Babbler', 'White-cheeked Barbet', 'Coppersmith Barbet',
+            'Red-whiskered Bulbul', 'Purple Sunbird', 'Ashy Prinia', 'Plain Prinia'
         ]
     elif lng > 77:  # Eastern India
-        regional_birds = [
-            'Jungle Babbler', 'Red-vented Bulbul', 'Brahminy Kite', 'White-bellied Sea Eagle',
-            'Lesser Adjutant', 'Asian Openbill', 'Black-headed Ibis', 'Glossy Ibis',
-            'Little Cormorant', 'Indian Cormorant', 'Great Cormorant', 'Darter'
+        regional_birds = common_urban_birds + [
+            'Jungle Babbler', 'Brahminy Kite', 'White-throated Kingfisher',
+            'Common Kingfisher', 'Coppersmith Barbet', 'Red-whiskered Bulbul'
         ]
     else:  # Western/Southern India
-        regional_birds = [
-            'White-cheeked Barbet', 'Malabar Grey Hornbill', 'Indian Grey Hornbill',
-            'Purple Sunbird', 'Loten\'s Sunbird', 'Purple-rumped Sunbird', 'Pale-billed Flowerpecker',
-            'Red-whiskered Bulbul', 'Yellow-browed Bulbul', 'White-browed Bulbul',
-            'Brown-headed Barbet', 'Crimson-backed Sunbird', 'Asian Paradise Flycatcher'
+        regional_birds = common_urban_birds + [
+            'White-cheeked Barbet', 'Purple Sunbird', 'Purple-rumped Sunbird',
+            'Red-whiskered Bulbul', 'Coppersmith Barbet', 'Oriental Magpie Robin'
         ]
     
-    # Habitat-specific additions
-    if 'lake' in location_name.lower() or 'river' in location_name.lower():
-        regional_birds.extend([
+    # SMART HABITAT-SPECIFIC ADDITIONS (only for appropriate locations)
+    if is_wetland:
+        wetland_birds = [
             'Little Egret', 'Cattle Egret', 'Indian Pond Heron', 'Grey Heron',
-            'Purple Heron', 'Common Kingfisher', 'White-throated Kingfisher',
-            'Pied Kingfisher', 'Little Cormorant', 'Indian Cormorant'
-        ])
+            'Common Kingfisher', 'White-throated Kingfisher', 'Pied Kingfisher',
+            'Little Cormorant', 'Purple Heron', 'Little Grebe'
+        ]
+        # Add specific wetland birds only for major wetlands
+        if any(term in location_lower for term in ['chilika', 'pulicat', 'loktak', 'wular']):
+            wetland_birds.extend(['Lesser Adjutant', 'Asian Openbill', 'Black-headed Ibis', 'Glossy Ibis'])
+        regional_birds.extend(wetland_birds)
     
-    if 'forest' in location_name.lower() or 'national park' in location_name.lower():
-        regional_birds.extend([
+    if is_forest and not is_urban:  # Only for actual forests, not urban parks
+        forest_birds = [
             'Asian Paradise Flycatcher', 'Oriental Magpie Robin', 'White-rumped Shama',
-            'Indian Pitta', 'Malabar Trogon', 'Orange Minivet', 'Scarlet Minivet',
-            'Brown-headed Barbet', 'Great Hornbill', 'Malabar Grey Hornbill'
-        ])
+            'Indian Pitta', 'Orange Minivet', 'Brown-headed Barbet'
+        ]
+        # Add specialized forest birds only for Western Ghats/major forests
+        if lat < 20 and lng < 78:  # Western Ghats region
+            forest_birds.extend(['Malabar Trogon', 'Malabar Grey Hornbill', 'Yellow-browed Bulbul'])
+        elif any(term in location_lower for term in ['corbett', 'kanha', 'pench', 'bandipur']):
+            forest_birds.extend(['Great Hornbill', 'Indian Grey Hornbill', 'Crested Serpent Eagle'])
+        regional_birds.extend(forest_birds)
     
-    # Generate species based on hotspot capacity
-    num_species_to_generate = min(len(set(regional_birds)), max(5, species_count // 10))
+    if is_garden or (is_urban and 'park' in location_lower):  # Urban parks and gardens
+        garden_birds = [
+            'Purple Sunbird', 'Pale-billed Flowerpecker', 'Oriental Magpie Robin',
+            'Red-whiskered Bulbul', 'Common Tailorbird', 'Ashy Prinia'
+        ]
+        regional_birds.extend(garden_birds)
+    
+    # REMOVE INAPPROPRIATE SPECIES FOR AIRPORTS
+    if 'airport' in location_lower:
+        # Remove all wetland and forest specialists from airports
+        airport_safe_birds = [bird for bird in regional_birds if bird not in [
+            'Lesser Adjutant', 'Oriental Darter', 'Little Cormorant', 'Great Cormorant',
+            'Grey Heron', 'Purple Heron', 'Malabar Trogon', 'Great Hornbill'
+        ]]
+        regional_birds = airport_safe_birds
+    
+    # FIXED: Generate realistic species counts based on eBird hotspot data
+    # Use actual eBird species count with intelligent scaling
+    if species_count >= 100:  # Major hotspots
+        num_species_to_generate = min(len(set(regional_birds)), max(25, species_count // 4))
+    elif species_count >= 50:  # Good hotspots
+        num_species_to_generate = min(len(set(regional_birds)), max(15, species_count // 3))
+    elif species_count >= 20:  # Decent hotspots
+        num_species_to_generate = min(len(set(regional_birds)), max(8, species_count // 2))
+    else:  # Small hotspots
+        num_species_to_generate = min(len(set(regional_birds)), max(5, species_count))
     
     # Select representative species
     import random
@@ -3054,8 +3100,13 @@ def run_dynamic_india_discovery(bird_client, params):
                     # Get scientific name and fun fact
                     scientific_name, fun_fact = get_scientific_name_and_fun_fact(species_row['species_name'])
                     
-                    # Get enhanced location name
-                    enhanced_location = get_enhanced_birder_location_name(hotspot['latitude'], hotspot['longitude'])
+                    # FIXED: Use actual eBird hotspot name instead of generic location
+                    enhanced_location = hotspot.get('location_name', 'Unknown Hotspot')
+                    
+                    # Only use fallback location naming if eBird name is generic or missing
+                    if (not enhanced_location or enhanced_location == 'Unknown Hotspot' or 
+                        len(enhanced_location.strip()) < 3):
+                        enhanced_location = get_enhanced_birder_location_name(hotspot['latitude'], hotspot['longitude'])
                     
                     # Determine hotspot classification
                     total_species_count = len(species_summary)
