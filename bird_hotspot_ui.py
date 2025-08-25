@@ -2756,9 +2756,59 @@ def handle_dynamic_india_hotspot_discovery(bird_client, use_ebird, use_gbif, use
             st.success("✅ Discovery results cleared!")
             st.rerun()
     
+        # ALWAYS AVAILABLE DOWNLOAD SECTION (if results exist)
+    if st.session_state.india_hotspot_results is not None:
+        st.markdown("---")
+        st.write("### 📥 **ALWAYS AVAILABLE DOWNLOADS**")
+        
+        results_df = st.session_state.india_hotspot_results
+        st.success(f"✅ **Results Ready**: {len(results_df):,} records with {len(results_df.columns)} columns")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            try:
+                simple_excel = create_excel_download({'Bird Hotspots': results_df}, "simple_download")
+                if simple_excel:
+                    st.download_button(
+                        label="📥 Simple Excel Download",
+                        data=simple_excel,
+                        file_name=f"bird_hotspots_simple_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                st.error(f"Simple download error: {str(e)}")
+        
+        with col2:
+            if st.button("💾 Quick Database Save", use_container_width=True):
+                try:
+                    db_test = test_database_connection()
+                    if db_test['success']:
+                        with st.spinner("Saving to database..."):
+                            db_result = save_bird_hotspots_to_database(results_df)
+                            if db_result['success']:
+                                st.success(f"✅ Saved {db_result['successful_inserts']:,} records!")
+                                st.balloons()
+                            else:
+                                st.error(f"❌ Save failed: {db_result.get('error', 'Unknown')}")
+                    else:
+                        st.error(f"❌ DB connection failed: {db_test['message']}")
+                except Exception as e:
+                    st.error(f"❌ Database error: {str(e)}")
+        
+        with col3:
+            st.metric("Records Available", f"{len(results_df):,}")
+        
+        st.markdown("---")
+    
     # Display previous results if available and parameters haven't changed
     if (st.session_state.india_hotspot_results is not None and 
         st.session_state.india_hotspot_params == current_params):
+        
+        # DEBUG: Show data status
+        results_df = st.session_state.india_hotspot_results
+        st.info(f"🔍 **Debug**: Found cached results with {len(results_df):,} records and {len(results_df.columns)} columns")
         
         # PERFORMANCE GUARANTEE: Always try to display results, with fallback
         try:
@@ -3654,7 +3704,11 @@ def display_dynamic_india_results(results_df, params):
     """Display the dynamic India hotspot discovery results."""
     st.info("📊 Showing dynamic India-wide hotspot discovery results")
     
-    if not results_df.empty:
+    if results_df is None or results_df.empty:
+        st.error("❌ No results data available to display")
+        return
+    
+    try:
         # Summary statistics with proper column handling
         total_hotspots = len(results_df['Place'].unique())
         
@@ -4147,6 +4201,56 @@ def display_dynamic_india_results(results_df, params):
         except Exception as e:
             st.error(f"❌ Error creating Excel download: {str(e)}")
             logger.error(f"Excel download error: {traceback.format_exc()}")
+    
+    except Exception as display_error:
+        st.error(f"❌ Critical display error: {str(display_error)}")
+        logger.error(f"Display error: {traceback.format_exc()}")
+        
+        # EMERGENCY FALLBACK: Always provide download functionality
+        st.warning("🚨 **Emergency Mode**: Main display failed, but download is still available!")
+        
+        try:
+            # Simple download without complex processing
+            basic_excel_data = create_excel_download({'Raw Data': results_df}, "emergency_backup")
+            if basic_excel_data:
+                st.download_button(
+                    label="📥 Emergency Download - Complete Dataset",
+                    data=basic_excel_data,
+                    file_name=f"emergency_bird_hotspots_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary"
+                )
+                st.success("✅ Emergency download available above!")
+        except Exception as emergency_error:
+            st.error(f"❌ Emergency download also failed: {str(emergency_error)}")
+        
+        # Emergency database save
+        try:
+            if st.button("🆘 Emergency Database Save", use_container_width=True):
+                db_test = test_database_connection()
+                if db_test['success']:
+                    db_result = save_bird_hotspots_to_database(results_df)
+                    if db_result['success']:
+                        st.success(f"✅ Emergency save successful: {db_result['message']}")
+                        st.balloons()
+                    else:
+                        st.error(f"❌ Emergency save failed: {db_result.get('error', 'Unknown error')}")
+                else:
+                    st.error(f"❌ Database connection failed: {db_test['message']}")
+        except Exception as emergency_db_error:
+            st.error(f"❌ Emergency database save failed: {str(emergency_db_error)}")
+        
+        # Show basic data info
+        try:
+            st.write("### 📊 Basic Data Summary")
+            st.write(f"**Total Records:** {len(results_df):,}")
+            st.write(f"**Columns:** {', '.join(results_df.columns.tolist())}")
+            if len(results_df) > 0:
+                st.write("**Sample Data (First 5 rows):**")
+                st.dataframe(results_df.head(5), use_container_width=True)
+        except Exception:
+            st.error("❌ Cannot display even basic data information")
 
 def handle_tehsil_analysis(bird_client, search_radius, ebird_api_key, use_ebird):
     """Handle tehsil-based analysis functionality."""
