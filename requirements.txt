@@ -11,3 +11,16 @@ geopy>=2.3.0
 scikit-learn>=1.2.2
 xlsxwriter>=3.1.0
 psycopg2-binary>=2.9.7
+
+# Bird Species Identification - Audio Processing
+librosa>=0.10.0
+soundfile>=0.12.0
+plotly>=5.14.0
+scipy>=1.10.0
+
+# Machine Learning for Perch 2.0 (Optional - for real model)
+tensorflow>=2.13.0
+transformers>=4.21.0
+
+# Bird Database Integration  
+ebird-api>=2.0.0  # Optional - for eBird API integration

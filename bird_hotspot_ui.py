@@ -15,6 +15,7 @@ import requests
 import json
 from dotenv import load_dotenv
 from bird_api_client import BirdDataClient
+from perch_bird_classifier import PerchBirdClassifier, render_perch_interface
 import matplotlib.pyplot as plt
 import numpy as np
 import south_asian_bird_hotspot
@@ -2368,6 +2369,32 @@ def create_india_map_with_hotspots(hotspot_data):
         logger.error(f"Error creating map: {str(e)}")
         return None
 
+def handle_perch_bird_classifier():
+    """Handle Perch 2.0 bird species identification functionality."""
+    # Clear the main page and show the Perch interface
+    st.markdown("""
+    ## 🎵 **Perch 2.0 Bird Species Identifier**
+    **Real Bird Species Identification - Like Merlin eBird App!**
+    
+    **🎯 Professional Features:**
+    - 🧠 **Real bird species identification** from audio recordings
+    - 🎙️ **Live recording** and instant analysis  
+    - 📊 **Advanced acoustic analysis** with spectrograms
+    - 🐦 **Global bird species database** with scientific names
+    - 🌍 **Habitat information** and call pattern analysis
+    - 🔬 **eBird-style taxonomy** and confidence scoring
+    
+    **📱 How to Use (Like Merlin App):**
+    1. Upload bird recordings or record live bird calls
+    2. AI analyzes audio using Perch 2.0 + species database
+    3. Get instant species identification with scientific names
+    4. View habitat info, call patterns, and confidence scores
+    5. Perfect for field birding and species documentation!
+    """)
+    
+    # Render the complete Perch interface
+    render_perch_interface()
+
 def main():
     """Main application function."""
     # Initialize session state
@@ -2404,7 +2431,8 @@ def main():
             "Use Current Location",
             "🇮🇳 Dynamic India-wide Hotspot Discovery",
             "India Tehsil-based Analysis",
-            "All-India Analysis"
+            "All-India Analysis",
+            "🎵 Perch 2.0 Bird Sound Classifier"
         ],
         key="location_method"
     )
@@ -2455,6 +2483,9 @@ def main():
     
     elif location_method == "All-India Analysis":
         handle_all_india_analysis(bird_client, use_ebird)
+    
+    elif location_method == "🎵 Perch 2.0 Bird Sound Classifier":
+        handle_perch_bird_classifier()
 
 def handle_city_search(bird_client, search_radius, use_ebird):
     """Handle city search functionality."""
